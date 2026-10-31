@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>&#x7fbd;&#x7403;&#x96d9;&#x6253;&#x5206;&#x968a;&#x7cfb;&#x7d71;</title>
-    <link rel="stylesheet" href="style.css?v=21">
+    <title>羽球分隊系統</title>
+    <link rel="stylesheet" href="style.css?v=23">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
@@ -18,12 +18,11 @@
 </head>
 <body>
     <div class="app-container">
-        <header>
+        <header id="mainHeader">
             <div class="logo">
                 <i data-lucide="feather"></i>
-                <h1>&#x7fbd;&#x7403;&#x96d9;&#x6253;&#x5206;&#x968a;&#x7cfb;&#x7d71;</h1>
+                <h1>羽球分隊系統 <small class="version-tag">v23</small></h1>
             </div>
-            <p class="subtitle">&#x652f;&#x63f4;&#x9ede;&#x64ca;&#x8207;&#x62d6;&#x66f3;&#xff0c;&#x8f15;&#x9b06;&#x5b89;&#x6392;&#x8cfd;&#x4e8b;</p>
         </header>
 
         <main>
@@ -309,7 +308,47 @@
             </div>
         </div>
     </div>
+
+    <!-- Modal: 離線與雲端資料衝突比對視窗 -->
+    <div id="conflictModal" class="modal-overlay" style="display: none; z-index: 10000;">
+        <div class="modal-card" style="max-width: 580px; width: 92%;">
+            <div class="modal-header">
+                <h3><i data-lucide="git-compare" style="color: #38bdf8;"></i> 偵測到離線修改與雲端資料不一致</h3>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 0.88rem; color: #cbd5e1; margin-bottom: 1rem; line-height: 1.5;">
+                    您在離線期間進行了排點或場次操作，重新連線後發現雲端伺服器上的紀錄與本機不同。請檢視比對並選擇要保留哪一個版本：
+                </p>
+
+                <div class="conflict-comparison-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem;">
+                    <!-- 本機離線紀錄卡片 -->
+                    <div style="background: rgba(16,185,129,0.08); border: 1.5px solid #10b981; border-radius: 0.75rem; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div style="font-weight: 700; color: #10b981; font-size: 0.95rem; display: flex; align-items: center; gap: 0.35rem;">
+                            <i data-lucide="smartphone"></i> 本機離線紀錄
+                        </div>
+                        <div id="conflictLocalTime" style="font-size: 0.75rem; color: var(--text-muted);"></div>
+                        <div id="conflictLocalSummary" style="font-size: 0.82rem; color: white; line-height: 1.5; background: rgba(0,0,0,0.25); padding: 0.5rem; border-radius: 0.4rem;"></div>
+                        <button id="btnKeepLocal" class="btn primary-btn" style="margin-top: auto; padding: 0.55rem; font-size: 0.85rem; width: 100%;">
+                            <i data-lucide="check"></i> 以本機紀錄為準<br><small style="font-size: 0.72rem; opacity: 0.85;">(覆蓋雲端伺服器)</small>
+                        </button>
+                    </div>
+
+                    <!-- 雲端伺服器紀錄卡片 -->
+                    <div style="background: rgba(56,189,248,0.08); border: 1.5px solid #38bdf8; border-radius: 0.75rem; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <div style="font-weight: 700; color: #38bdf8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.35rem;">
+                            <i data-lucide="cloud"></i> 雲端伺服器紀錄
+                        </div>
+                        <div id="conflictServerTime" style="font-size: 0.75rem; color: var(--text-muted);"></div>
+                        <div id="conflictServerSummary" style="font-size: 0.82rem; color: white; line-height: 1.5; background: rgba(0,0,0,0.25); padding: 0.5rem; border-radius: 0.4rem;"></div>
+                        <button id="btnKeepServer" class="btn outline-btn" style="margin-top: auto; padding: 0.55rem; font-size: 0.85rem; width: 100%; border-color: #38bdf8; color: #38bdf8;">
+                            <i data-lucide="download-cloud"></i> 以雲端紀錄為準<br><small style="font-size: 0.72rem; opacity: 0.85;">(捨棄本機離線修改)</small>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     
-    <script src="app.js?v=21"></script>
+    <script src="app.js?v=23"></script>
 </body>
 </html>

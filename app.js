@@ -349,6 +349,12 @@ navBtns.forEach(btn => {
         target.classList.add('active');
         target.style.display = 'block';
 
+        // 僅在排點主頁 (viewMatch) 顯示頂部標題，其他頁面 (viewSettings, viewPlayers) 隱藏頂部
+        const mainHeader = document.getElementById('mainHeader');
+        if (mainHeader) {
+            mainHeader.style.display = (targetId === 'viewMatch') ? 'block' : 'none';
+        }
+
         if (isPlayerEditMode && btnEditPlayersToggle) {
             isPlayerEditMode = false;
             btnEditPlayersToggle.classList.remove('primary-btn');
@@ -373,22 +379,143 @@ playerLevelInput.addEventListener('input', (e) => {
     levelValueSpan.className = `level-badge level-${val}`;
 });
 
+function recordLocalModification() {
+    const now = Date.now();
+    localStorage.setItem('localLastModified', now.toString());
+    if (!navigator.onLine) {
+        localStorage.setItem('hasOfflineEdits', 'true');
+        localStorage.setItem('offlineSnapshot', JSON.stringify({
+            players,
+            matchState,
+            matchConfig,
+            lastModified: now
+        }));
+    }
+}
+
+function countActivePlayersInState(ms) {
+    if (!ms || !ms.activeCourts) return 0;
+    let count = 0;
+    ms.activeCourts.forEach(c => {
+        if (c.teamA) {
+            if (c.teamA[0]) count++;
+            if (c.teamA[1]) count++;
+        }
+        if (c.teamB) {
+            if (c.teamB[0]) count++;
+            if (c.teamB[1]) count++;
+        }
+    });
+    return count;
+}
+
+function formatStateSummary(pList, ms) {
+    const totalP = (pList || []).length;
+    const playingP = (pList || []).filter(p => p.isPlaying).length;
+    const activeP = countActivePlayersInState(ms);
+    const poolP = (ms && ms.pool) ? ms.pool.length : 0;
+    return `• 球員總數：${totalP} 人 (今日出席 ${playingP} 人)<br>• 上場狀態：${activeP} 人比賽中<br>• 候補等待：${poolP} 人`;
+}
+
+function showConflictModal(localSnap, serverData) {
+    const modal = document.getElementById('conflictModal');
+    if (!modal) return;
+
+    const localTimeEl = document.getElementById('conflictLocalTime');
+    const localSummaryEl = document.getElementById('conflictLocalSummary');
+    const serverTimeEl = document.getElementById('conflictServerTime');
+    const serverSummaryEl = document.getElementById('conflictServerSummary');
+
+    const localDateStr = localSnap.lastModified ? new Date(localSnap.lastModified).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '離線操作紀錄';
+    const serverDateStr = serverData.lastModified ? new Date(serverData.lastModified).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '雲端現有版本';
+
+    if (localTimeEl) localTimeEl.textContent = `最後修改：${localDateStr}`;
+    if (localSummaryEl) localSummaryEl.innerHTML = formatStateSummary(localSnap.players, localSnap.matchState);
+
+    if (serverTimeEl) serverTimeEl.textContent = `最後更新：${serverDateStr}`;
+    if (serverSummaryEl) serverSummaryEl.innerHTML = formatStateSummary(serverData.players, serverData.matchState);
+
+    modal.style.display = 'flex';
+    lucide.createIcons();
+
+    const btnKeepLocal = document.getElementById('btnKeepLocal');
+    const btnKeepServer = document.getElementById('btnKeepServer');
+
+    btnKeepLocal.onclick = () => {
+        const now = Date.now();
+        db.collection('badminton').doc('state').set({
+            players,
+            matchState,
+            matchConfig,
+            lastModified: now
+        });
+        localStorage.removeItem('hasOfflineEdits');
+        localStorage.removeItem('offlineSnapshot');
+        modal.style.display = 'none';
+        alert('已成功以本機離線紀錄覆蓋雲端伺服器！');
+    };
+
+    btnKeepServer.onclick = () => {
+        if (serverData.players) players = serverData.players;
+        if (serverData.matchState) {
+            matchState = serverData.matchState;
+            matchState.courts = matchState.courts || [];
+            matchState.activeCourts = matchState.activeCourts || [];
+        }
+        if (serverData.matchConfig) {
+            matchConfig = Object.assign({}, matchConfig, serverData.matchConfig);
+        }
+        saveCurrentSettingsSnapshot();
+        setUIFromConfig(savedSettingsSnapshot);
+        renderDatabaseList();
+        syncPoolWithPlayers();
+        renderMatchUI();
+
+        localStorage.removeItem('hasOfflineEdits');
+        localStorage.removeItem('offlineSnapshot');
+        modal.style.display = 'none';
+        alert('已成功載入雲端伺服器紀錄！');
+    };
+}
+
 function savePlayers() {
     if (!players || players.length === 0) {
         console.warn("Blocked saving empty players list to prevent accidental overwrite");
         return;
     }
-    db.collection('badminton').doc('state').set({ players }, { merge: true });
+    const now = Date.now();
+    recordLocalModification();
+    db.collection('badminton').doc('state').set({ players, lastModified: now }, { merge: true });
 }
 
 function saveMatchState() {
-    db.collection('badminton').doc('state').set({ matchState }, { merge: true });
+    const now = Date.now();
+    recordLocalModification();
+    db.collection('badminton').doc('state').set({ matchState, lastModified: now }, { merge: true });
 }
 
 // --- FIRESTORE REALTIME SYNC ---
 db.collection('badminton').doc('state').onSnapshot(doc => {
     if (doc.exists) {
         const data = doc.data();
+        const isFromCache = doc.metadata.fromCache;
+
+        // 若有離線修改，且本次收到的是來自雲端的真實更新，檢查衝突
+        if (!isFromCache && localStorage.getItem('hasOfflineEdits') === 'true') {
+            const snapStr = localStorage.getItem('offlineSnapshot');
+            if (snapStr) {
+                try {
+                    const localSnap = JSON.parse(snapStr);
+                    if (data.lastModified !== localSnap.lastModified) {
+                        showConflictModal(localSnap, data);
+                        return; // 暫停自動覆蓋，等待使用者確認選擇
+                    }
+                } catch (e) {
+                    console.error('Failed to parse offline snapshot', e);
+                }
+            }
+        }
+
         if (data.players) players = data.players;
         if (data.matchState) {
             matchState = data.matchState;

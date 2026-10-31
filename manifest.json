@@ -1,7 +1,7 @@
 {
-  "name": "Badminton Matcher",
-  "short_name": "Badminton",
-  "description": "羽球雙打分隊系統",
+  "name": "羽球分隊系統",
+  "short_name": "羽球分隊",
+  "description": "羽球分隊系統",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0f172a",

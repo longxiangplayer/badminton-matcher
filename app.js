@@ -832,26 +832,26 @@ function renderDatabaseList() {
                         </label>`;
 
         if (isPlayerEditMode) {
-            nameHtml = `<input type="text" value="${p.name}" onchange="updatePlayerName('${p.id}', this.value)" style="width: 80px; padding: 0.2rem; font-size: 0.9rem; border-radius: 0.3rem; border: 1px solid var(--border); background: rgba(0,0,0,0.5); color: white;">`;
-            levelHtml = `<input type="number" min="1" max="8" value="${p.level}" onchange="updatePlayerLevel('${p.id}', this.value)" style="width: 45px; padding: 0.2rem; font-size: 0.9rem; border-radius: 0.3rem; border: 1px solid var(--border); background: rgba(0,0,0,0.5); color: white;">`;
-            attendanceCheckbox = `<div style="width: 20px; height: 20px;"></div>`;
+            nameHtml = `<input type="text" class="player-edit-name-input" value="${p.name}" onchange="updatePlayerName('${p.id}', this.value)" placeholder="姓名">`;
+            levelHtml = `<input type="number" class="player-edit-level-input" min="1" max="8" value="${p.level}" onchange="updatePlayerLevel('${p.id}', this.value)" title="等級 (1-8)">`;
+            attendanceCheckbox = '';
             employeeCheckbox = '';
             editActions = `
-                <button class="icon-btn" onclick="deletePlayer('${p.id}')" title="刪除">
+                <button class="player-delete-btn" onclick="deletePlayer('${p.id}')" title="刪除此球員">
                     <i data-lucide="trash-2"></i>
                 </button>
             `;
         }
 
         li.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="display: flex; align-items: center; gap: 0.65rem; flex: 1 1 0; min-width: 0;">
                 ${attendanceCheckbox}
-                <div class="player-info-detailed">
-                    <div class="player-main-line" style="display: flex; gap: 0.5rem; align-items: center;">
+                <div class="player-info-detailed" style="flex: 1 1 0; min-width: 0;">
+                    <div class="player-main-line" style="display: flex; gap: 0.5rem; align-items: center; width: 100%;">
                         ${levelHtml}
                         ${nameHtml}
                     </div>
-                    <div class="player-stats" style="align-items: center;">
+                    <div class="player-stats" style="align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.72rem; gap: 0.5rem; margin-top: 0.2rem; min-width: 0;">
                         <span>出席: ${p.attendance || 0} 次</span>
                         <span>上次: ${p.lastDate || '無'}</span>
                         ${employeeCheckbox}

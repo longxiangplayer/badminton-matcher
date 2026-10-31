@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>&#x7fbd;&#x7403;&#x96d9;&#x6253;&#x5206;&#x968a;&#x7cfb;&#x7d71;</title>
+    <link rel="stylesheet" href="style.css?v=21">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <!-- Firebase Compat SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo">
+                <i data-lucide="feather"></i>
+                <h1>&#x7fbd;&#x7403;&#x96d9;&#x6253;&#x5206;&#x968a;&#x7cfb;&#x7d71;</h1>
+            </div>
+            <p class="subtitle">&#x652f;&#x63f4;&#x9ede;&#x64ca;&#x8207;&#x62d6;&#x66f3;&#xff0c;&#x8f15;&#x9b06;&#x5b89;&#x6392;&#x8cfd;&#x4e8b;</p>
+        </header>
+
+        <main>
+            <!-- ================= VIEW: MATCH MAKING ================= -->
+            <section id="viewMatch" class="view active">
+                <div class="match-layout-vertical">
+                    <!-- Top Content (Courts) -->
+                    <div class="match-main">
+                        <!-- Courts Grid: 上場中與預備場地 (橫版為上下排列，直版為預備場在左、上場中在右) -->
+                        <div id="courtsWrapper" class="courts-wrapper">
+                            <!-- Active Courts (Top / 上場中) -->
+                            <div class="card" id="activeCourtsCard">
+                                <div class="section-header" id="activeCourtsHeader" style="margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; align-items: center;">
+                                    <h2><i data-lucide="play-circle"></i> 上場中</h2>
+                                    <div style="display: flex; gap: 0.5rem; margin-left: auto; align-items: center;">
+                                        <button id="btnToggleCourtOrientation" class="btn outline-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;" title="切換場地直式/橫式排列">
+                                            <i data-lucide="arrow-left-right"></i> <span id="orientationLabel">直式版面</span>
+                                        </button>
+                                        <button id="btnAutoActive" class="btn primary-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; display: none;"><i data-lucide="zap"></i> 全自動安排</button>
+                                        <button id="btnClearActive" class="btn outline-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;" title="清空全部上場中場地"><i data-lucide="rotate-ccw"></i> 清空</button>
+                                    </div>
+                                </div>
+                                <div id="activeCourtsContainer" class="courts-container"></div>
+                            </div>
+
+                            <!-- Pre Courts (Bottom / 預備場地) -->
+                            <div class="card" id="preCourtsCard">
+                                <div class="section-header" style="margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+                                    <h2><i data-lucide="calendar-clock"></i> 預備場地</h2>
+                                    <div style="display: flex; gap: 0.5rem; margin-left: auto;">
+                                        <button id="btnAutoPre" class="btn primary-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;"><i data-lucide="zap"></i> 全自動安排</button>
+                                        <button id="btnClear" class="btn outline-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;" title="清空全部預備場地"><i data-lucide="rotate-ccw"></i> 清空</button>
+                                    </div>
+                                </div>
+                                <div id="preCourtsContainer" class="courts-container"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Content (Pool) -->
+                    <div class="match-sidebar">
+                        <div class="card pool-card" style="min-height: auto;">
+                            <div class="section-header" style="margin-bottom: 0.2rem; flex-wrap: wrap; gap: 0.5rem;">
+                                <h2><i data-lucide="coffee"></i> 候補區 <span class="player-count" id="playingCount" style="margin-left: 0.5rem; font-size: 0.9rem;">上場: 0 人</span></h2>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-left: auto;">
+                                    <button id="btnClearRestStatus" class="btn outline-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;" title="重設所有人的優先值"><i data-lucide="refresh-cw"></i> 重設優先值</button>
+                                    <button id="btnClearPoolMatches" class="btn outline-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;" title="清空所有人的當日上場次數"><i data-lucide="rotate-ccw"></i> 清空上場次數</button>
+                                </div>
+                            </div>
+                            <small class="tip" style="display:block; margin-bottom: 0.8rem;">點選球員，再點選空位即可安排；標籤顯示目前累積優先值 (⚡)</small>
+                            <div id="restingPlayersList" class="resting-list slot-container" data-type="pool"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= VIEW: COURT & SYSTEM SETTINGS ================= -->
+            <section id="viewSettings" class="view" style="display: none;">
+                <div style="display: flex; flex-direction: column; gap: 1.25rem; max-width: 860px; margin: 0 auto;">
+                    
+                    <!-- 1. 等待優先值機制 (最上方專區) -->
+                    <div class="card" style="display: flex; flex-direction: column; gap: 1rem; padding: 1.25rem; border: 1px solid rgba(56,189,248,0.3);">
+                        <div class="section-header" style="border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; margin-bottom: 0;">
+                            <h2><i data-lucide="zap" style="color: #38bdf8;"></i> 等待優先值輪替機制</h2>
+                            <div class="toggle-switch" style="display: inline-flex; border: 1px solid var(--border); border-radius: 0.4rem; overflow: hidden; margin-left: auto;">
+                                <button id="btnPriorityOn" class="btn" style="border-radius: 0; padding: 0.35rem 0.85rem; font-size: 0.85rem; background: #10b981; color: white;">開</button>
+                                <button id="btnPriorityOff" class="btn" style="border-radius: 0; padding: 0.35rem 0.85rem; font-size: 0.85rem; background: rgba(15,23,42,0.6); color: var(--text-muted);">關</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between;">
+                                <div>
+                                    <div style="font-weight: 600; font-size: 0.95rem; color: white; margin-bottom: 0.25rem;">每輪等待增加點數</div>
+                                    <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">剛下場者優先值歸 0 休息；留在候補區者每過一場自動增加此點數。</p>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="number" id="cfgPriorityStep" min="1" max="100" value="25" style="width: 70px; padding: 0.45rem; font-size: 1rem; background: rgba(15,23,42,0.6); border: 1px solid var(--border); color: white; border-radius: 0.5rem; text-align: center;">
+                                    <span style="font-size: 0.85rem; color: var(--text-muted);">點 / 場</span>
+                                </div>
+                            </div>
+                            <div id="unplayedPriorityHint" style="font-size: 0.85rem; color: #38bdf8; background: rgba(56,189,248,0.1); padding: 0.5rem 0.75rem; border-radius: 0.5rem; border: 1px solid rgba(56,189,248,0.25); display: flex; align-items: center; gap: 0.5rem;">
+                                <i data-lucide="info" style="width: 16px; height: 16px; flex-shrink: 0;"></i>
+                                <span>未打過者優先值公式：(上場數 + 1) × 增加點數 = <b id="hintUnplayedVal" style="color: #38bdf8; font-size: 1rem;">100</b> 點 (永遠領先剛下場者)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. 單純開關區 (避開前搭檔 & 今日場次平衡) -->
+                    <div class="card" style="display: flex; flex-direction: column; gap: 1rem; padding: 1.25rem;">
+                        <div class="section-header" style="border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; margin-bottom: 0;">
+                            <h2><i data-lucide="toggle-left"></i> 配對邏輯開關</h2>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+                            <!-- 避開前搭檔 (預設開) -->
+                            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+                                <div>
+                                    <div style="font-weight: 600; font-size: 0.95rem; color: white; display: flex; align-items: center; gap: 0.35rem;">
+                                        <i data-lucide="user-x" style="color: #38bdf8;"></i> 避開前搭檔
+                                    </div>
+                                    <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0.25rem 0 0 0;">上一場同隊過的搭檔不連續同隊</p>
+                                </div>
+                                <div class="toggle-switch" style="display: inline-flex; border: 1px solid var(--border); border-radius: 0.4rem; overflow: hidden; flex-shrink: 0;">
+                                    <button id="btnAvoidPartnerOn" class="btn" style="border-radius: 0; padding: 0.35rem 0.85rem; font-size: 0.85rem; background: #10b981; color: white;">開</button>
+                                    <button id="btnAvoidPartnerOff" class="btn" style="border-radius: 0; padding: 0.35rem 0.85rem; font-size: 0.85rem; background: rgba(15,23,42,0.6); color: var(--text-muted);">關</button>
+                                </div>
+                            </div>
+
+                            <!-- 今日場次平衡 (預設關) -->
+                            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+                                <div>
+                                    <div style="font-weight: 600; font-size: 0.95rem; color: white; display: flex; align-items: center; gap: 0.35rem;">
+                                        <i data-lucide="bar-chart-2" style="color: #38bdf8;"></i> 今日場次平衡
+                                    </div>
+                                    <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0.25rem 0 0 0;">同優先值中，打最少場者優先上陣</p>
+                                </div>
+                                <div class="toggle-switch" style="display: inline-flex; border: 1px solid var(--border); border-radius: 0.4rem; overflow: hidden; flex-shrink: 0;">
+                                    <button id="btnBalanceMatchesOn" class="btn" style="border-radius: 0; padding: 0.35rem 0.85rem; font-size: 0.85rem; background: rgba(15,23,42,0.6); color: var(--text-muted);">開</button>
+                                    <button id="btnBalanceMatchesOff" class="btn" style="border-radius: 0; padding: 0.35rem 0.85rem; font-size: 0.85rem; background: #ef4444; color: white;">關</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. 數值設定區 (填 0 即關閉，放一起) -->
+                    <div class="card" style="display: flex; flex-direction: column; gap: 1rem; padding: 1.25rem;">
+                        <div class="section-header" style="border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; margin-bottom: 0;">
+                            <h2><i data-lucide="sliders"></i> 數值規則設定 <small style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">(填 0 即關閉該項)</small></h2>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
+                            <!-- Active Courts (預設 3) -->
+                            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                                <div style="font-weight: 600; font-size: 0.85rem; color: #38bdf8;">上場中場地數</div>
+                                <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">上方啟用的比賽場數</p>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: auto;">
+                                    <input type="number" id="activeCourtCount" min="1" max="10" value="3" style="width: 55px; padding: 0.35rem; font-size: 1rem; background: rgba(15,23,42,0.6); border: 1px solid var(--border); color: white; border-radius: 0.5rem; text-align: center;">
+                                    <span style="font-size: 0.8rem; color: var(--text-muted);">面場地</span>
+                                </div>
+                            </div>
+
+                            <!-- 預備場地數 (預設 1, 0=關) -->
+                            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                                <div style="font-weight: 600; font-size: 0.85rem; color: #38bdf8;">預備場地數</div>
+                                <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">填 0 則關閉並隱藏</p>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: auto;">
+                                    <input type="number" id="preCourtCount" min="0" max="10" value="1" style="width: 55px; padding: 0.35rem; font-size: 1rem; background: rgba(15,23,42,0.6); border: 1px solid var(--border); color: white; border-radius: 0.5rem; text-align: center;">
+                                    <span style="font-size: 0.8rem; color: var(--text-muted);">面場地</span>
+                                </div>
+                            </div>
+
+                            <!-- 總分差上限 (預設 2, 0=關) -->
+                            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                                <div style="font-weight: 600; font-size: 0.85rem; color: #38bdf8;">兩隊總分差</div>
+                                <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">兩隊星數差距 (0=不限)</p>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: auto;">
+                                    <span style="font-size: 0.8rem; color: var(--text-muted);">&le;</span>
+                                    <input type="number" id="cfgMaxTeamDiff" min="0" max="8" value="2" style="width: 55px; padding: 0.35rem; font-size: 1rem; background: rgba(15,23,42,0.6); border: 1px solid var(--border); color: white; border-radius: 0.5rem; text-align: center;">
+                                </div>
+                            </div>
+
+                            <!-- 同場等級落差 (預設 4, 0=關) -->
+                            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 0.75rem; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                                <div style="font-weight: 600; font-size: 0.85rem; color: #38bdf8;">同場等級落差</div>
+                                <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">同場選手差 (0=不限)</p>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: auto;">
+                                    <span style="font-size: 0.8rem; color: var(--text-muted);">&le;</span>
+                                    <input type="number" id="cfgMaxPlayerGap" min="0" max="8" value="4" style="width: 55px; padding: 0.35rem; font-size: 1rem; background: rgba(15,23,42,0.6); border: 1px solid var(--border); color: white; border-radius: 0.5rem; text-align: center;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem;">
+                            <button id="btnApplyCourts" class="btn primary-btn" style="padding: 0.6rem 1.5rem; font-size: 0.95rem;">
+                                <i data-lucide="check"></i> 套用設定變更
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ================= VIEW: PLAYER MANAGEMENT ================= -->
+            <section id="viewPlayers" class="view" style="display: none;">
+                <div class="card player-section">
+                    <div class="section-header">
+                        <h2><i data-lucide="user-plus"></i> &#x65b0;&#x589e;&#x7403;&#x54e1;</h2>
+                    </div>
+                    
+                    <form id="addPlayerForm" class="add-player-form">
+                        <div class="input-group">
+                            <input type="text" id="playerName" placeholder="&#x8f38;&#x5165;&#x7403;&#x54e1;&#x59d3;&#x540d;..." required autocomplete="off">
+                            <div class="level-selector">
+                                <label>&#x7b49;&#x7d1a; (1-8)</label>
+                                <input type="range" id="playerLevel" min="1" max="8" value="4">
+                                <span id="levelValue" class="level-badge level-4">4</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(15,23,42,0.6); padding: 0.5rem 1rem; border-radius: 0.75rem; border: 1px solid var(--border);">
+                                <input type="checkbox" id="playerIsEmployee" style="width:16px;height:16px;accent-color:var(--primary);">
+                                <label for="playerIsEmployee" style="font-size:0.9rem;color:white;">&#x54e1;&#x5de5;</label>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn primary-btn"><i data-lucide="plus"></i> &#x65b0;&#x589e;</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <div class="section-header" style="flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <h2><i data-lucide="users"></i> &#x7403;&#x54e1;&#x540d;&#x55ae; <small class="tip">(&#x6253;&#x52fe;=&#x4eca;&#x65e5;&#x4e0a;&#x5834;)</small></h2>
+                        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-left: auto;">
+                            <button id="btnEditPlayersToggle" class="btn outline-btn" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; height: auto;" title="&#x9032;&#x5165;/&#x9000;&#x51fa;&#x7de8;&#x8f2f;&#x6a21;&#x5f0f;"><i data-lucide="edit"></i> &#x9032;&#x5165;&#x7de8;&#x8f2f;</button>
+                            <input type="text" id="playerSearch" placeholder="&#x641c;&#x5c0b;&#x59d3;&#x540d;..." style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: rgba(15,23,42,0.6); border: 1px solid var(--border); color: white; border-radius: 0.5rem; width: 100px;">
+                            <button id="btnSelectAllAttendance" class="btn outline-btn" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; height: auto;" title="&#x5168;&#x90e8;&#x8a2d;&#x70ba;&#x51fa;&#x5e2d;"><i data-lucide="check-square"></i> &#x5168;&#x51fa;&#x5e2d;</button>
+                            <button id="btnClearAttendance" class="btn outline-btn" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; height: auto;" title="&#x6e05;&#x7a7a;&#x5168;&#x90e8;&#x6253;&#x52fe;&#x51fa;&#x5e2d;"><i data-lucide="x-square"></i> &#x6e05;&#x7a7a;&#x51fa;&#x5e2d;</button>
+                            <button id="btnClearRecords" class="btn outline-btn" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; height: auto;" title="&#x6e05;&#x7a7a;&#x6240;&#x6709;&#x4eba;&#x7684;&#x51fa;&#x5e2d;&#x53ca;&#x4e0a;&#x5834;&#x7d00;&#x9304;"><i data-lucide="refresh-cw"></i> &#x6e05;&#x7a7a;&#x7d00;&#x9304;</button>
+                            <span class="player-count" id="totalPlayerCount" style="margin-left: 0.5rem;">0 &#x4eba;</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+                        <select id="playerSortMode" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; background: transparent; border: none; color: var(--text-muted); cursor: pointer; outline: none;">
+                            <option value="levelDesc">&#x6392;&#x5e8f;&#xff1a;&#x7b49;&#x7d1a;(&#x9ad8;&#x5230;&#x4f4e;)</option>
+                            <option value="levelAsc">&#x6392;&#x5e8f;&#xff1a;&#x7b49;&#x7d1a;(&#x4f4e;&#x5230;&#x9ad8;)</option>
+                            <option value="name">&#x6392;&#x5e8f;&#xff1a;&#x59d3;&#x540d;</option>
+                        </select>
+                    </div>
+
+                    <div class="player-list-container">
+                        <ul id="playerList" class="player-list player-grid">
+                            <!-- Players render here -->
+                        </ul>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <nav class="bottom-nav">
+            <button class="nav-btn active" data-target="viewMatch">
+                <i data-lucide="swords"></i>
+                <span>場地安排</span>
+            </button>
+            <button class="nav-btn" data-target="viewSettings">
+                <i data-lucide="settings-2"></i>
+                <span>場地控制</span>
+            </button>
+            <button class="nav-btn" data-target="viewPlayers">
+                <i data-lucide="users"></i>
+                <span>球員管理</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Modal: 推至場地防呆確認視窗 -->
+    <div id="pushConfirmModal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i data-lucide="alert-triangle" style="color: #f59e0b;"></i> 場地已有球員：請確認處理方式</h3>
+                <button class="icon-btn" id="btnClosePushModal" style="color: var(--text-muted); background: transparent; border: none; cursor: pointer;"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <p id="pushModalDesc" style="font-size: 0.9rem; color: white; margin-bottom: 0.75rem; line-height: 1.5;"></p>
+                <div id="pushModalPlayersList" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.6rem 0.85rem; margin-bottom: 1.1rem; font-size: 0.85rem;"></div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">請選擇原場地球員的處理方式：</div>
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <button id="btnPushModalFinish" class="btn" style="background: #10b981; color: white; padding: 0.75rem 1rem; border-radius: 0.6rem; text-align: left; cursor: pointer; border: 1px solid rgba(16,185,129,0.5);">
+                        <div style="font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+                            <i data-lucide="check-circle-2"></i> 打完下場（正規結算）
+                        </div>
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem; color: #ecfdf5;">
+                            原球員場次 +1、優先值歸 0 休息；候補區等待者增加優先值
+                        </div>
+                    </button>
+                    <button id="btnPushModalClearOnly" class="btn" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4); padding: 0.75rem 1rem; border-radius: 0.6rem; text-align: left; cursor: pointer;">
+                        <div style="font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+                            <i data-lucide="rotate-ccw"></i> 僅清除換人（不計場次）
+                        </div>
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem; color: #fef3c7;">
+                            原球員直接退回候補區，不增加場次、不變更優先值
+                        </div>
+                    </button>
+                    <button id="btnPushModalCancel" class="btn outline-btn" style="padding: 0.55rem 1rem; border-radius: 0.5rem; font-size: 0.85rem; margin-top: 0.25rem;">
+                        <i data-lucide="x"></i> 取消操作（維持原狀）
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js?v=21"></script>
+</body>
+</html>

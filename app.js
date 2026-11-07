@@ -57,8 +57,12 @@ let clickedPlayerId = null;
 // 上場中場地數: 預設 3
 let matchConfig = {
     enablePriority: true,
-    priorityStep: 25,
+    priorityStep: 100,
+    unplayedCourtOffset: 1,
+    playedCapCourtOffset: 0,
+    confirmFinishMatch: false,
     avoidRecentPartner: true,
+    avoidSameCourt: true,
     balanceMatchCount: false,
     maxTeamDiff: 2,
     maxPlayerGap: 4
@@ -90,11 +94,20 @@ const playerIsEmployeeCheckbox = document.getElementById('playerIsEmployee');
 const btnPriorityOn = document.getElementById('btnPriorityOn');
 const btnPriorityOff = document.getElementById('btnPriorityOff');
 const cfgPriorityStep = document.getElementById('cfgPriorityStep');
+const cfgUnplayedOffset = document.getElementById('cfgUnplayedOffset');
+const cfgPlayedCapOffset = document.getElementById('cfgPlayedCapOffset');
 const hintUnplayedVal = document.getElementById('hintUnplayedVal');
+const hintMaxWaitingVal = document.getElementById('hintMaxWaitingVal');
+const hintUnplayedFormula = document.getElementById('hintUnplayedFormula');
+const hintMaxWaitingFormula = document.getElementById('hintMaxWaitingFormula');
 const btnAvoidPartnerOn = document.getElementById('btnAvoidPartnerOn');
 const btnAvoidPartnerOff = document.getElementById('btnAvoidPartnerOff');
+const btnAvoidSameCourtOn = document.getElementById('btnAvoidSameCourtOn');
+const btnAvoidSameCourtOff = document.getElementById('btnAvoidSameCourtOff');
 const btnBalanceMatchesOn = document.getElementById('btnBalanceMatchesOn');
 const btnBalanceMatchesOff = document.getElementById('btnBalanceMatchesOff');
+const btnConfirmFinishOn = document.getElementById('btnConfirmFinishOn');
+const btnConfirmFinishOff = document.getElementById('btnConfirmFinishOff');
 const cfgMaxTeamDiff = document.getElementById('cfgMaxTeamDiff');
 const cfgMaxPlayerGap = document.getElementById('cfgMaxPlayerGap');
 const btnApplyCourts = document.getElementById('btnApplyCourts');
@@ -114,22 +127,59 @@ function getActiveCourtCount() {
 
 function getUnplayedPriority() {
     const courtCount = getActiveCourtCount();
-    const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 25;
-    return (courtCount + 1) * step;
+    const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 100;
+    const offset = (matchConfig && matchConfig.unplayedCourtOffset !== undefined) ? Number(matchConfig.unplayedCourtOffset) : 1;
+    return Math.max(0, (courtCount + offset) * step);
+}
+
+function getMaxWaitingPriority() {
+    const courtCount = getActiveCourtCount();
+    const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 100;
+    const offset = (matchConfig && matchConfig.playedCapCourtOffset !== undefined) ? Number(matchConfig.playedCapCourtOffset) : 0;
+    return Math.max(0, (courtCount + offset) * step);
 }
 
 function getPlayerPriority(p) {
-    if (p.priority !== undefined && p.priority !== null) {
-        return Number(p.priority);
+    if (!p) return 0;
+    const isUnplayed = !p.matchCount || p.matchCount === 0;
+    if (isUnplayed) {
+        return getUnplayedPriority();
     }
-    return getUnplayedPriority();
+    const maxWaitingPrio = getMaxWaitingPriority();
+    if (p.priority !== undefined && p.priority !== null) {
+        return Math.min(Number(p.priority), maxWaitingPrio);
+    }
+    return 0;
 }
 
 function updateUnplayedHint() {
-    if (!hintUnplayedVal) return;
+    const hintUnplayedVal = document.getElementById('hintUnplayedVal');
+    const hintMaxWaitingVal = document.getElementById('hintMaxWaitingVal');
+    const hintUnplayedFormula = document.getElementById('hintUnplayedFormula');
+    const hintMaxWaitingFormula = document.getElementById('hintMaxWaitingFormula');
     const courts = activeCourtCountSelect ? (parseInt(activeCourtCountSelect.value) || 3) : 3;
-    const step = cfgPriorityStep ? (parseInt(cfgPriorityStep.value) || 25) : 25;
-    hintUnplayedVal.textContent = (courts + 1) * step;
+    const step = cfgPriorityStep ? (parseInt(cfgPriorityStep.value) || 100) : 100;
+    const unplayedOffset = cfgUnplayedOffset ? (parseInt(cfgUnplayedOffset.value) !== undefined && !isNaN(parseInt(cfgUnplayedOffset.value)) ? parseInt(cfgUnplayedOffset.value) : 1) : 1;
+    const playedCapOffset = cfgPlayedCapOffset ? (parseInt(cfgPlayedCapOffset.value) !== undefined && !isNaN(parseInt(cfgPlayedCapOffset.value)) ? parseInt(cfgPlayedCapOffset.value) : 0) : 0;
+
+    const unplayedCalc = Math.max(0, (courts + unplayedOffset) * step);
+    const playedCapCalc = Math.max(0, (courts + playedCapOffset) * step);
+
+    if (hintUnplayedVal) hintUnplayedVal.textContent = unplayedCalc;
+    if (hintMaxWaitingVal) hintMaxWaitingVal.textContent = playedCapCalc;
+
+    const formatOffset = (off) => {
+        if (off > 0) return `+ ${off}`;
+        if (off < 0) return `- ${Math.abs(off)}`;
+        return `+ 0`;
+    };
+
+    if (hintUnplayedFormula) {
+        hintUnplayedFormula.textContent = `(場地數 ${formatOffset(unplayedOffset)}) × 點數`;
+    }
+    if (hintMaxWaitingFormula) {
+        hintMaxWaitingFormula.textContent = `(場地數 ${formatOffset(playedCapOffset)}) × 點數`;
+    }
 }
 
 // --- SETTINGS SNAPSHOT & DIRTY CHECKING (防呆保護) ---
@@ -138,8 +188,12 @@ let savedSettingsSnapshot = null;
 function saveCurrentSettingsSnapshot() {
     savedSettingsSnapshot = {
         enablePriority: matchConfig.enablePriority !== undefined ? Boolean(matchConfig.enablePriority) : true,
-        priorityStep: matchConfig.priorityStep !== undefined ? Number(matchConfig.priorityStep) : 25,
+        priorityStep: matchConfig.priorityStep !== undefined ? Number(matchConfig.priorityStep) : 100,
+        unplayedCourtOffset: matchConfig.unplayedCourtOffset !== undefined ? Number(matchConfig.unplayedCourtOffset) : 1,
+        playedCapCourtOffset: matchConfig.playedCapCourtOffset !== undefined ? Number(matchConfig.playedCapCourtOffset) : 0,
+        confirmFinishMatch: matchConfig.confirmFinishMatch !== undefined ? Boolean(matchConfig.confirmFinishMatch) : false,
         avoidRecentPartner: matchConfig.avoidRecentPartner !== undefined ? Boolean(matchConfig.avoidRecentPartner) : true,
+        avoidSameCourt: matchConfig.avoidSameCourt !== undefined ? Boolean(matchConfig.avoidSameCourt) : true,
         balanceMatchCount: matchConfig.balanceMatchCount !== undefined ? Boolean(matchConfig.balanceMatchCount) : false,
         activeCourtCount: (matchState.activeCourts && matchState.activeCourts.length > 0) ? matchState.activeCourts.length : 3,
         preCourtCount: (matchState.courts !== undefined) ? matchState.courts.length : 1,
@@ -151,8 +205,12 @@ function saveCurrentSettingsSnapshot() {
 function getUIConfigValues() {
     return {
         enablePriority: btnPriorityOn ? btnPriorityOn.classList.contains('is-active') : true,
-        priorityStep: cfgPriorityStep ? (parseInt(cfgPriorityStep.value) || 25) : 25,
+        priorityStep: cfgPriorityStep ? (parseInt(cfgPriorityStep.value) || 100) : 100,
+        unplayedCourtOffset: cfgUnplayedOffset ? (parseInt(cfgUnplayedOffset.value) !== undefined && !isNaN(parseInt(cfgUnplayedOffset.value)) ? parseInt(cfgUnplayedOffset.value) : 1) : 1,
+        playedCapCourtOffset: cfgPlayedCapOffset ? (parseInt(cfgPlayedCapOffset.value) !== undefined && !isNaN(parseInt(cfgPlayedCapOffset.value)) ? parseInt(cfgPlayedCapOffset.value) : 0) : 0,
+        confirmFinishMatch: btnConfirmFinishOn ? btnConfirmFinishOn.classList.contains('is-active') : false,
         avoidRecentPartner: btnAvoidPartnerOn ? btnAvoidPartnerOn.classList.contains('is-active') : true,
+        avoidSameCourt: btnAvoidSameCourtOn ? btnAvoidSameCourtOn.classList.contains('is-active') : true,
         balanceMatchCount: btnBalanceMatchesOn ? btnBalanceMatchesOn.classList.contains('is-active') : false,
         activeCourtCount: activeCourtCountSelect ? (parseInt(activeCourtCountSelect.value) || 3) : 3,
         preCourtCount: courtCountSelect ? (parseInt(courtCountSelect.value) >= 0 ? parseInt(courtCountSelect.value) : 1) : 1,
@@ -183,10 +241,14 @@ function setToggleState(btnOn, btnOff, isOn) {
 function setUIFromConfig(cfg) {
     if (!cfg) return;
     setToggleState(btnPriorityOn, btnPriorityOff, cfg.enablePriority);
-    if (cfgPriorityStep) cfgPriorityStep.value = cfg.priorityStep;
+    if (cfgPriorityStep) cfgPriorityStep.value = (cfg.priorityStep !== undefined) ? cfg.priorityStep : 100;
+    if (cfgUnplayedOffset) cfgUnplayedOffset.value = (cfg.unplayedCourtOffset !== undefined) ? cfg.unplayedCourtOffset : 1;
+    if (cfgPlayedCapOffset) cfgPlayedCapOffset.value = (cfg.playedCapCourtOffset !== undefined) ? cfg.playedCapCourtOffset : 0;
 
     setToggleState(btnAvoidPartnerOn, btnAvoidPartnerOff, cfg.avoidRecentPartner);
+    setToggleState(btnAvoidSameCourtOn, btnAvoidSameCourtOff, cfg.avoidSameCourt !== undefined ? cfg.avoidSameCourt : true);
     setToggleState(btnBalanceMatchesOn, btnBalanceMatchesOff, cfg.balanceMatchCount);
+    setToggleState(btnConfirmFinishOn, btnConfirmFinishOff, cfg.confirmFinishMatch || false);
 
     if (activeCourtCountSelect) activeCourtCountSelect.value = cfg.activeCourtCount;
     if (courtCountSelect) courtCountSelect.value = cfg.preCourtCount;
@@ -213,8 +275,20 @@ function getSettingsDiffs(current, saved) {
     if (current.priorityStep !== saved.priorityStep) {
         diffs.push(`每輪等待增加點數：${saved.priorityStep} 點 ➔ ${current.priorityStep} 點`);
     }
+    if (current.unplayedCourtOffset !== saved.unplayedCourtOffset) {
+        diffs.push(`未打過者場地係數：場地數 + ${saved.unplayedCourtOffset} ➔ 場地數 + ${current.unplayedCourtOffset}`);
+    }
+    if (current.playedCapCourtOffset !== saved.playedCapCourtOffset) {
+        diffs.push(`已打過者上限係數：場地數 + ${saved.playedCapCourtOffset} ➔ 場地數 + ${current.playedCapCourtOffset}`);
+    }
+    if (current.confirmFinishMatch !== saved.confirmFinishMatch) {
+        diffs.push(`下場確認通知：${saved.confirmFinishMatch ? '開啟' : '關閉'} ➔ ${current.confirmFinishMatch ? '開啟' : '關閉'}`);
+    }
     if (current.avoidRecentPartner !== saved.avoidRecentPartner) {
         diffs.push(`避開前搭檔：${saved.avoidRecentPartner ? '開啟' : '關閉'} ➔ ${current.avoidRecentPartner ? '開啟' : '關閉'}`);
+    }
+    if (current.avoidSameCourt !== saved.avoidSameCourt) {
+        diffs.push(`避開前同場者：${saved.avoidSameCourt ? '開啟' : '關閉'} ➔ ${current.avoidSameCourt ? '開啟' : '關閉'}`);
     }
     if (current.balanceMatchCount !== saved.balanceMatchCount) {
         diffs.push(`今日場次平衡：${saved.balanceMatchCount ? '開啟' : '關閉'} ➔ ${current.balanceMatchCount ? '開啟' : '關閉'}`);
@@ -236,7 +310,11 @@ function applySettingsFromUI() {
     const cur = getUIConfigValues();
     matchConfig.enablePriority = cur.enablePriority;
     matchConfig.priorityStep = cur.priorityStep;
+    matchConfig.unplayedCourtOffset = cur.unplayedCourtOffset;
+    matchConfig.playedCapCourtOffset = cur.playedCapCourtOffset;
+    matchConfig.confirmFinishMatch = cur.confirmFinishMatch;
     matchConfig.avoidRecentPartner = cur.avoidRecentPartner;
+    matchConfig.avoidSameCourt = cur.avoidSameCourt;
     matchConfig.balanceMatchCount = cur.balanceMatchCount;
     matchConfig.maxTeamDiff = cur.maxTeamDiff;
     matchConfig.maxPlayerGap = cur.maxPlayerGap;
@@ -266,12 +344,26 @@ if (btnAvoidPartnerOn && btnAvoidPartnerOff) {
     btnAvoidPartnerOn.addEventListener('click', () => setToggleState(btnAvoidPartnerOn, btnAvoidPartnerOff, true));
     btnAvoidPartnerOff.addEventListener('click', () => setToggleState(btnAvoidPartnerOn, btnAvoidPartnerOff, false));
 }
+if (btnAvoidSameCourtOn && btnAvoidSameCourtOff) {
+    btnAvoidSameCourtOn.addEventListener('click', () => setToggleState(btnAvoidSameCourtOn, btnAvoidSameCourtOff, true));
+    btnAvoidSameCourtOff.addEventListener('click', () => setToggleState(btnAvoidSameCourtOn, btnAvoidSameCourtOff, false));
+}
 if (btnBalanceMatchesOn && btnBalanceMatchesOff) {
     btnBalanceMatchesOn.addEventListener('click', () => setToggleState(btnBalanceMatchesOn, btnBalanceMatchesOff, true));
     btnBalanceMatchesOff.addEventListener('click', () => setToggleState(btnBalanceMatchesOn, btnBalanceMatchesOff, false));
 }
+if (btnConfirmFinishOn && btnConfirmFinishOff) {
+    btnConfirmFinishOn.addEventListener('click', () => setToggleState(btnConfirmFinishOn, btnConfirmFinishOff, true));
+    btnConfirmFinishOff.addEventListener('click', () => setToggleState(btnConfirmFinishOn, btnConfirmFinishOff, false));
+}
 if (cfgPriorityStep) {
     cfgPriorityStep.addEventListener('input', updateUnplayedHint);
+}
+if (cfgUnplayedOffset) {
+    cfgUnplayedOffset.addEventListener('input', updateUnplayedHint);
+}
+if (cfgPlayedCapOffset) {
+    cfgPlayedCapOffset.addEventListener('input', updateUnplayedHint);
 }
 if (activeCourtCountSelect) {
     activeCourtCountSelect.addEventListener('input', updateUnplayedHint);
@@ -296,11 +388,11 @@ if (btnApplyCourts) {
 function updateOrientationUI() {
     if (!btnToggleCourtOrientation) return;
     if (isCourtVertical) {
-        btnToggleCourtOrientation.innerHTML = '<i data-lucide="columns-2"></i> <span id="orientationLabel">橫式版面</span>';
-        btnToggleCourtOrientation.title = '目前為直式 (預備場在左、上場在右)，點擊切換為橫式版面 (上場在上、預備在下)';
+        btnToggleCourtOrientation.innerHTML = '<i data-lucide="columns-2"></i> <span id="orientationLabel">直式</span>';
+        btnToggleCourtOrientation.title = '目前為直式版面，點擊切換為橫式版面';
     } else {
-        btnToggleCourtOrientation.innerHTML = '<i data-lucide="rows-2"></i> <span id="orientationLabel">直式版面</span>';
-        btnToggleCourtOrientation.title = '目前為橫式 (上場在上、預備在下)，點擊切換為直式版面 (預備場在左、上場在右)';
+        btnToggleCourtOrientation.innerHTML = '<i data-lucide="rows-2"></i> <span id="orientationLabel">橫式</span>';
+        btnToggleCourtOrientation.title = '目前為橫式版面，點擊切換為直式版面';
     }
     lucide.createIcons();
 }
@@ -532,8 +624,12 @@ db.collection('badminton').doc('state').onSnapshot(doc => {
         if (data.matchConfig) {
             matchConfig = {
                 enablePriority: data.matchConfig.enablePriority !== undefined ? data.matchConfig.enablePriority : true,
-                priorityStep: data.matchConfig.priorityStep !== undefined ? data.matchConfig.priorityStep : 25,
+                priorityStep: data.matchConfig.priorityStep !== undefined ? data.matchConfig.priorityStep : 100,
+                unplayedCourtOffset: data.matchConfig.unplayedCourtOffset !== undefined ? data.matchConfig.unplayedCourtOffset : 1,
+                playedCapCourtOffset: data.matchConfig.playedCapCourtOffset !== undefined ? data.matchConfig.playedCapCourtOffset : 0,
+                confirmFinishMatch: data.matchConfig.confirmFinishMatch !== undefined ? data.matchConfig.confirmFinishMatch : false,
                 avoidRecentPartner: data.matchConfig.avoidRecentPartner !== undefined ? data.matchConfig.avoidRecentPartner : true,
+                avoidSameCourt: data.matchConfig.avoidSameCourt !== undefined ? data.matchConfig.avoidSameCourt : true,
                 balanceMatchCount: data.matchConfig.balanceMatchCount !== undefined ? data.matchConfig.balanceMatchCount : false,
                 maxTeamDiff: data.matchConfig.maxTeamDiff !== undefined ? data.matchConfig.maxTeamDiff : 2,
                 maxPlayerGap: data.matchConfig.maxPlayerGap !== undefined ? data.matchConfig.maxPlayerGap : 4
@@ -634,6 +730,7 @@ function recordAttendance() {
                 p.attendance = (p.attendance || 0) + 1;
                 p.matchCount = 0;
                 p.lastPartnerId = null;
+                p.lastCourtPlayerIds = null;
                 p.lastDate = today;
                 updated = true;
             }
@@ -701,11 +798,13 @@ if (btnClearPoolMatches) {
             players.forEach(p => {
                 p.matchCount = 0;
                 p.lastPartnerId = null;
+                p.lastCourtPlayerIds = null;
             });
             if (matchState && matchState.pool) {
                 matchState.pool.forEach(p => {
                     p.matchCount = 0;
                     p.lastPartnerId = null;
+                    p.lastCourtPlayerIds = null;
                 });
             }
             savePlayers();
@@ -717,18 +816,20 @@ if (btnClearPoolMatches) {
 const btnClearRestStatus = document.getElementById('btnClearRestStatus');
 if (btnClearRestStatus) {
     btnClearRestStatus.addEventListener('click', () => {
-        if (confirm('確定要重設所有人的等待優先值嗎？\n(未打過者與候補者將恢復初始優先值)')) {
-            const initialVal = getUnplayedPriority();
-            players.forEach(p => {
-                p.priority = initialVal;
-            });
+        const unplayedVal = getUnplayedPriority();
+        const maxWaitingVal = getMaxWaitingPriority();
+        if (confirm(`確定要重設【候補區】球員的等待優先值嗎？\n・未打過者恢復最高值（${unplayedVal} 點）\n・已打過者重設為封頂上限（${maxWaitingVal} 點）\n(正在場上打球者不受影響，下場時正常歸 0 休息)`)) {
             if (matchState && matchState.pool) {
                 matchState.pool.forEach(p => {
-                    p.priority = initialVal;
+                    const isUnplayed = !p.matchCount || p.matchCount === 0;
+                    p.priority = isUnplayed ? unplayedVal : maxWaitingVal;
+                    const globalP = players.find(x => x.id === p.id);
+                    if (globalP) globalP.priority = p.priority;
                 });
             }
             savePlayers();
             renderMatchUI(true);
+            renderDatabaseList();
         }
     });
 }
@@ -1060,18 +1161,38 @@ window.clearCourt = (courtIndex) => {
 };
 
 function recordCourtPartners(court) {
-    if (!court || court.isSingles) return;
-    if (court.teamA[0] && court.teamA[1]) {
-        const p0 = players.find(x => x.id === court.teamA[0].id);
-        const p1 = players.find(x => x.id === court.teamA[1].id);
-        if (p0) p0.lastPartnerId = court.teamA[1].id;
-        if (p1) p1.lastPartnerId = court.teamA[0].id;
-    }
-    if (court.teamB[0] && court.teamB[1]) {
-        const p2 = players.find(x => x.id === court.teamB[0].id);
-        const p3 = players.find(x => x.id === court.teamB[1].id);
-        if (p2) p2.lastPartnerId = court.teamB[1].id;
-        if (p3) p3.lastPartnerId = court.teamB[0].id;
+    if (!court) return;
+    const allCourtPlayers = [];
+    if (court.teamA[0]) allCourtPlayers.push(court.teamA[0]);
+    if (court.teamA[1]) allCourtPlayers.push(court.teamA[1]);
+    if (court.teamB[0]) allCourtPlayers.push(court.teamB[0]);
+    if (court.teamB[1]) allCourtPlayers.push(court.teamB[1]);
+    const courtPlayerIds = allCourtPlayers.map(p => p.id);
+
+    allCourtPlayers.forEach(p => {
+        const others = courtPlayerIds.filter(id => id !== p.id);
+        p.lastCourtPlayerIds = others;
+        const globalP = players.find(x => x.id === p.id);
+        if (globalP) globalP.lastCourtPlayerIds = others;
+    });
+
+    if (!court.isSingles) {
+        if (court.teamA[0] && court.teamA[1]) {
+            const p0 = players.find(x => x.id === court.teamA[0].id);
+            const p1 = players.find(x => x.id === court.teamA[1].id);
+            if (p0) p0.lastPartnerId = court.teamA[1].id;
+            if (p1) p1.lastPartnerId = court.teamA[0].id;
+            court.teamA[0].lastPartnerId = court.teamA[1].id;
+            court.teamA[1].lastPartnerId = court.teamA[0].id;
+        }
+        if (court.teamB[0] && court.teamB[1]) {
+            const p2 = players.find(x => x.id === court.teamB[0].id);
+            const p3 = players.find(x => x.id === court.teamB[1].id);
+            if (p2) p2.lastPartnerId = court.teamB[1].id;
+            if (p3) p3.lastPartnerId = court.teamB[0].id;
+            court.teamB[0].lastPartnerId = court.teamB[1].id;
+            court.teamB[1].lastPartnerId = court.teamB[0].id;
+        }
     }
 }
 
@@ -1096,19 +1217,35 @@ window.finishActiveMatch = (courtIndex) => {
         return;
     }
 
+    const courtName = court.name || (`場地 ${courtIndex + 1}`);
     const isFull = court.isSingles ? (playersInCourt.length === 2) : (playersInCourt.length === 4);
+    const playerNames = playersInCourt.map(p => p.name).join('、');
 
     if (isFull) {
+        if (matchConfig.confirmFinishMatch) {
+            if (!confirm(`【${courtName}】確定比賽已打完並下場結算？\n\n球員：${playerNames}\n・球員場次 +1\n・球員優先值歸 0 休息\n・候補區等待者累積點數\n\n（若只是要換人重排不計分，請按「取消」後點擊「清空」）`)) {
+                return;
+            }
+        }
+
         recordAttendance();
         recordCourtPartners(court);
 
-        // 1. 候補區等待中的球員增加優先值
-        const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 25;
+        // 1. 候補區等待中的球員增加優先值 (最高上限為 場地數 x 點數，一場未打者維持 (場地數+1) x 點數)
+        const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 100;
+        const maxWaitingPrio = getMaxWaitingPriority();
+        const unplayedPrio = getUnplayedPriority();
+
         if (matchConfig.enablePriority) {
             matchState.pool.forEach(poolP => {
-                const curPrio = getPlayerPriority(poolP);
-                poolP.priority = curPrio + step;
                 const globalP = players.find(x => x.id === poolP.id);
+                const isUnplayed = !poolP.matchCount || poolP.matchCount === 0;
+                if (isUnplayed) {
+                    poolP.priority = unplayedPrio;
+                } else {
+                    const curPrio = getPlayerPriority(poolP);
+                    poolP.priority = Math.min(curPrio + step, maxWaitingPrio);
+                }
                 if (globalP) globalP.priority = poolP.priority;
             });
         }
@@ -1126,6 +1263,11 @@ window.finishActiveMatch = (courtIndex) => {
         });
     } else {
         // 未打滿即結束：不計場次與優先值
+        if (matchConfig.confirmFinishMatch) {
+            if (!confirm(`【${courtName}】人數未滿，將直接退回候補區（不計場次與優先值）？`)) {
+                return;
+            }
+        }
         playersInCourt.forEach(p => {
             const globalPlayer = players.find(x => x.id === p.id);
             matchState.pool.push(globalPlayer || p);
@@ -1203,12 +1345,21 @@ function executePushToActive(preIdx, activeIdx, mode) {
             recordAttendance();
             recordCourtPartners(activeCourt);
 
+            // 候補區等待中的球員增加優先值 (最高上限為 場地數 x 點數，一場未打者維持 (場地數+1) x 點數)
             const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 25;
+            const maxWaitingPrio = getMaxWaitingPriority();
+            const unplayedPrio = getUnplayedPriority();
+
             if (matchConfig.enablePriority) {
                 matchState.pool.forEach(poolP => {
-                    const curPrio = getPlayerPriority(poolP);
-                    poolP.priority = curPrio + step;
                     const globalP = players.find(x => x.id === poolP.id);
+                    const isUnplayed = !poolP.matchCount || poolP.matchCount === 0;
+                    if (isUnplayed) {
+                        poolP.priority = unplayedPrio;
+                    } else {
+                        const curPrio = getPlayerPriority(poolP);
+                        poolP.priority = Math.min(curPrio + step, maxWaitingPrio);
+                    }
                     if (globalP) globalP.priority = poolP.priority;
                 });
             }
@@ -1237,8 +1388,16 @@ function executePushToActive(preIdx, activeIdx, mode) {
     activeCourt.teamB = [...preCourt.teamB];
     activeCourt.isSingles = preCourt.isSingles;
 
-    preCourt.teamA = [null, null];
-    preCourt.teamB = [null, null];
+    // 後續預備場依序向前遞補 (例如預備場2遞補上預備場1，預備場3遞補上預備場2，以此類推)
+    for (let i = preIdx; i < matchState.courts.length - 1; i++) {
+        matchState.courts[i].teamA = [...matchState.courts[i + 1].teamA];
+        matchState.courts[i].teamB = [...matchState.courts[i + 1].teamB];
+        matchState.courts[i].isSingles = matchState.courts[i + 1].isSingles;
+    }
+    const lastPreIdx = matchState.courts.length - 1;
+    matchState.courts[lastPreIdx].teamA = [null, null];
+    matchState.courts[lastPreIdx].teamB = [null, null];
+    matchState.courts[lastPreIdx].isSingles = false;
 
     savePlayers();
     renderMatchUI(true);
@@ -1308,8 +1467,10 @@ function shuffleArray(array) {
     return arr;
 }
 
-function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPartner) {
+function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPartner, avoidSameCourt) {
     if (pool.length < neededSize) return null;
+
+    const avoidSame = (avoidSameCourt !== undefined) ? avoidSameCourt : ((matchConfig && matchConfig.avoidSameCourt !== undefined) ? matchConfig.avoidSameCourt : true);
 
     let candidatePool = [...pool];
     candidatePool = shuffleArray(candidatePool);
@@ -1344,6 +1505,8 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
                 const diff = Math.abs(searchPool[i].level - searchPool[j].level);
                 const gapCheck = (maxPlayerGap === 0) || (diff <= maxPlayerGap);
                 const diffCheck = (maxTeamDiff === 0) || (diff <= maxTeamDiff);
+                const sameCourt = Boolean(searchPool[i].lastCourtPlayerIds && searchPool[i].lastCourtPlayerIds.includes(searchPool[j].id));
+                if (avoidSame && sameCourt) continue;
                 if (gapCheck && diffCheck) {
                     const totalPriority = getPlayerPriority(searchPool[i]) + getPlayerPriority(searchPool[j]);
                     const totalMatches = (searchPool[i].matchCount || 0) + (searchPool[j].matchCount || 0);
@@ -1359,8 +1522,11 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
         }
 
         if (pairs.length === 0) {
+            if (avoidSame) {
+                return pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPartner, false);
+            }
             if ((maxPlayerGap > 0 && maxPlayerGap < 8) || (maxTeamDiff > 0 && maxTeamDiff < 8)) {
-                return pickOneMatch(pool, neededSize, maxTeamDiff === 0 ? 0 : maxTeamDiff + 1, maxPlayerGap === 0 ? 0 : maxPlayerGap + 2, false);
+                return pickOneMatch(pool, neededSize, maxTeamDiff === 0 ? 0 : maxTeamDiff + 1, maxPlayerGap === 0 ? 0 : maxPlayerGap + 2, false, false);
             }
             return {
                 teamA: [candidatePool[0], null],
@@ -1389,7 +1555,7 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
     // 雙打模式 (neededSize === 4)
     const searchPool = candidatePool.length > 20 ? candidatePool.slice(0, 20) : candidatePool;
 
-    function findQuads(currMaxTeamDiff, currMaxPlayerGap, currAvoidPartner) {
+    function findQuads(currMaxTeamDiff, currMaxPlayerGap, currAvoidPartner, currAvoidSameCourt) {
         const quads = [];
         for (let i = 0; i < searchPool.length; i++) {
             for (let j = i + 1; j < searchPool.length; j++) {
@@ -1399,6 +1565,16 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
                         const lvls = [p[0].level, p[1].level, p[2].level, p[3].level];
                         const gap = Math.max(...lvls) - Math.min(...lvls);
                         if (currMaxPlayerGap > 0 && gap > currMaxPlayerGap) continue;
+
+                        let sameCourtRepeats = 0;
+                        for (let m = 0; m < 4; m++) {
+                            for (let n = m + 1; n < 4; n++) {
+                                if (p[m].lastCourtPlayerIds && p[m].lastCourtPlayerIds.includes(p[n].id)) {
+                                    sameCourtRepeats++;
+                                }
+                            }
+                        }
+                        if (currAvoidSameCourt && sameCourtRepeats > 0) continue;
 
                         const splits = [
                             [[0,1], [2,3]],
@@ -1444,6 +1620,7 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
                                 totalPriority,
                                 totalMatches,
                                 hasRepeat: chosenSplit.isRepeat,
+                                sameCourtRepeats,
                                 avgIndex: i + j + k + l
                             });
                         }
@@ -1454,10 +1631,14 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
         return quads;
     }
 
-    let candidates = findQuads(maxTeamDiff, maxPlayerGap, avoidRecentPartner);
+    let candidates = findQuads(maxTeamDiff, maxPlayerGap, avoidRecentPartner, avoidSame);
+
+    if (candidates.length === 0 && avoidSame) {
+        candidates = findQuads(maxTeamDiff, maxPlayerGap, avoidRecentPartner, false);
+    }
 
     if (candidates.length === 0 && avoidRecentPartner) {
-        candidates = findQuads(maxTeamDiff, maxPlayerGap, false);
+        candidates = findQuads(maxTeamDiff, maxPlayerGap, false, false);
     }
 
     let relaxGap = maxPlayerGap;
@@ -1465,7 +1646,7 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
     while (candidates.length === 0 && ((relaxGap > 0 && relaxGap < 10) || (relaxDiff > 0 && relaxDiff < 10))) {
         if (relaxGap > 0) relaxGap += 1;
         if (relaxDiff > 0) relaxDiff += 1;
-        candidates = findQuads(relaxDiff, relaxGap, false);
+        candidates = findQuads(relaxDiff, relaxGap, false, false);
     }
 
     if (candidates.length === 0) {
@@ -1476,6 +1657,10 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
         };
     }
 
+    if (avoidSame) {
+        const nonSame = candidates.filter(c => (c.sameCourtRepeats || 0) === 0);
+        if (nonSame.length > 0) candidates = nonSame;
+    }
     if (avoidRecentPartner) {
         const nonRepeats = candidates.filter(c => !c.hasRepeat);
         if (nonRepeats.length > 0) candidates = nonRepeats;
@@ -1505,12 +1690,13 @@ function fillCourtsIntelligently(courts, pool) {
     const maxTeamDiff = (matchConfig && matchConfig.maxTeamDiff !== undefined) ? matchConfig.maxTeamDiff : 2;
     const maxPlayerGap = (matchConfig && matchConfig.maxPlayerGap !== undefined) ? matchConfig.maxPlayerGap : 4;
     const avoidPartner = (matchConfig && matchConfig.avoidRecentPartner !== undefined) ? matchConfig.avoidRecentPartner : true;
+    const avoidSameCourt = (matchConfig && matchConfig.avoidSameCourt !== undefined) ? matchConfig.avoidSameCourt : true;
 
     for (let c of courts) {
         const needed = c.isSingles ? 2 : 4;
         if (pool.length < needed) break;
 
-        const resultMatch = pickOneMatch(pool, needed, maxTeamDiff, maxPlayerGap, avoidPartner);
+        const resultMatch = pickOneMatch(pool, needed, maxTeamDiff, maxPlayerGap, avoidPartner, avoidSameCourt);
         if (resultMatch) {
             if (needed === 2) {
                 c.teamA[0] = resultMatch.teamA[0];
@@ -1680,6 +1866,109 @@ function createPlayerEl(p, state) {
                 }
             }
         });
+
+        // --- 手機與平板觸控拖曳支援 (解決行動裝置滑動會拉扯視窗/無法拖曳的問題) ---
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let isTouchDragging = false;
+        let touchAvatar = null;
+
+        el.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            const touch = e.touches[0];
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+            isTouchDragging = false;
+        }, { passive: true });
+
+        el.addEventListener('touchmove', (e) => {
+            if (e.touches.length !== 1) return;
+            const touch = e.touches[0];
+            const dx = touch.clientX - touchStartX;
+            const dy = touch.clientY - touchStartY;
+
+            // 超過 8px 判定為開始拖曳
+            if (!isTouchDragging && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+                isTouchDragging = true;
+                touchAvatar = el.cloneNode(true);
+                touchAvatar.classList.add('touch-drag-avatar');
+                touchAvatar.style.width = el.offsetWidth + 'px';
+                touchAvatar.style.height = el.offsetHeight + 'px';
+                touchAvatar.style.left = touch.clientX + 'px';
+                touchAvatar.style.top = touch.clientY + 'px';
+                document.body.appendChild(touchAvatar);
+                el.style.opacity = '0.35';
+            }
+
+            if (isTouchDragging) {
+                // 阻止瀏覽器預設滾動，避免手機畫面拉扯跳動
+                if (e.cancelable) e.preventDefault();
+                if (touchAvatar) {
+                    touchAvatar.style.left = touch.clientX + 'px';
+                    touchAvatar.style.top = touch.clientY + 'px';
+                }
+
+                // 偵測手指正下方對應的位置並標註高亮
+                const elemBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+                document.querySelectorAll('.slot.drag-over').forEach(s => s.classList.remove('drag-over'));
+                if (elemBelow) {
+                    const slot = elemBelow.closest('.slot');
+                    if (slot) {
+                        slot.classList.add('drag-over');
+                    }
+                }
+            }
+        }, { passive: false });
+
+        const handleTouchEnd = (e) => {
+            if (isTouchDragging) {
+                isTouchDragging = false;
+                el.style.opacity = '1';
+                document.querySelectorAll('.slot.drag-over').forEach(s => s.classList.remove('drag-over'));
+
+                if (touchAvatar) {
+                    touchAvatar.remove();
+                    touchAvatar = null;
+                }
+
+                const lastTouch = e.changedTouches ? e.changedTouches[0] : null;
+                if (lastTouch) {
+                    const dropTarget = document.elementFromPoint(lastTouch.clientX, lastTouch.clientY);
+                    if (dropTarget) {
+                        const targetSlot = dropTarget.closest('.slot');
+                        const targetPool = dropTarget.closest('#restingPlayersList');
+
+                        if (targetSlot) {
+                            const existingPlayerEl = targetSlot.querySelector('.draggable-player');
+                            if (existingPlayerEl && existingPlayerEl.dataset.id !== p.id) {
+                                swapPlayersInDOM(p.id, existingPlayerEl.dataset.id);
+                            } else if (!existingPlayerEl) {
+                                movePlayerInDOM(p.id, targetSlot);
+                            }
+                        } else if (targetPool && state !== 'pool') {
+                            movePlayerInDOM(p.id, restingPlayersList);
+                        }
+                    }
+                }
+            } else {
+                if (touchAvatar) {
+                    touchAvatar.remove();
+                    touchAvatar = null;
+                }
+                el.style.opacity = '1';
+            }
+        };
+
+        el.addEventListener('touchend', handleTouchEnd);
+        el.addEventListener('touchcancel', () => {
+            isTouchDragging = false;
+            el.style.opacity = '1';
+            if (touchAvatar) {
+                touchAvatar.remove();
+                touchAvatar = null;
+            }
+            document.querySelectorAll('.slot.drag-over').forEach(s => s.classList.remove('drag-over'));
+        });
     }
 
     return el;
@@ -1823,21 +2112,15 @@ function renderMatchUI(shouldSave = false) {
 
         courtEl.innerHTML = `
             <div class="court-header">
-                <div class="court-header-top">
-                    <input type="text" class="court-name-input" maxlength="6" value="${c.name || ('場地 ' + (idx + 1))}" onchange="forceStateSync()">
-                </div>
-                <div class="court-header-bottom">
-                    ${clearBtnHtml}
-                    <div style="display: flex; align-items: center; gap: 0.35rem; margin-left: auto;">
-                        ${autoBtnHtml}
-                        ${finishBtnHtml}
-                    </div>
-                </div>
+                <input type="text" class="court-name-input" maxlength="6" value="${c.name || ('場地 ' + (idx + 1))}" onchange="forceStateSync()">
+                ${clearBtnHtml}
             </div>
             <div class="teams-wrapper">
                 <div class="team">
                     <div class="team-header">A 隊 (總星數 <span>0</span>)</div>
-                    ${slotsAHtml}
+                    <div class="team-slots">
+                        ${slotsAHtml}
+                    </div>
                 </div>
                 <div class="vs-divider">
                     <span class="vs-text">VS</span>
@@ -1847,8 +2130,14 @@ function renderMatchUI(shouldSave = false) {
                 </div>
                 <div class="team">
                     <div class="team-header">B 隊 (總星數 <span>0</span>)</div>
-                    ${slotsBHtml}
+                    <div class="team-slots">
+                        ${slotsBHtml}
+                    </div>
                 </div>
+            </div>
+            <div class="court-actions">
+                ${autoBtnHtml}
+                ${finishBtnHtml}
             </div>
         `;
         activeCourtsContainer.appendChild(courtEl);
@@ -1880,12 +2169,27 @@ function renderMatchUI(shouldSave = false) {
             courtEl.className = 'court' + (isCourtVertical ? ' is-vertical' : '');
             courtEl.dataset.issingles = c.isSingles ? 'true' : 'false';
 
-            let pushOptions = '<option value="" disabled selected>推至場地...</option>';
+            const emptyActiveCourts = [];
             matchState.activeCourts.forEach((ac, aIdx) => {
-                pushOptions += `<option value="${aIdx}">${ac.name || ('場地 ' + (aIdx + 1))}</option>`;
+                const isAcEmpty = (!ac.teamA || (!ac.teamA[0] && !ac.teamA[1])) && (!ac.teamB || (!ac.teamB[0] && !ac.teamB[1]));
+                if (isAcEmpty) {
+                    emptyActiveCourts.push({ aIdx, name: ac.name || ('場地 ' + (aIdx + 1)) });
+                }
             });
 
-            const pushSelectHtml = `<select class="push-select" onchange="pushToActiveCourt(${idx}, this.value); this.value='';">
+            let pushOptions = '';
+            let pushDisabled = false;
+            if (emptyActiveCourts.length > 0) {
+                pushOptions = '<option value="" disabled selected>推至空場...</option>';
+                emptyActiveCourts.forEach(ec => {
+                    pushOptions += `<option value="${ec.aIdx}">${ec.name}</option>`;
+                });
+            } else {
+                pushOptions = '<option value="" disabled selected>無空場地</option>';
+                pushDisabled = true;
+            }
+
+            const pushSelectHtml = `<select class="push-select" ${pushDisabled ? 'disabled style="opacity: 0.45; cursor: not-allowed;"' : ''} onchange="pushToActiveCourt(${idx}, this.value); this.value='';">
                 ${pushOptions}
             </select>`;
 
@@ -1900,21 +2204,15 @@ function renderMatchUI(shouldSave = false) {
 
             courtEl.innerHTML = `
                 <div class="court-header">
-                    <div class="court-header-top">
-                        <span class="court-title-text">${c.name || ('預備場 ' + (idx + 1))}</span>
-                        <div style="display: flex; align-items: center; gap: 0.3rem;">
-                            ${clearCourtBtnHtml}
-                            ${autoBtnHtml}
-                        </div>
-                    </div>
-                    <div class="court-header-bottom">
-                        ${pushSelectHtml}
-                    </div>
+                    <span class="court-title-text">${c.name || ('預備場 ' + (idx + 1))}</span>
+                    ${clearCourtBtnHtml}
                 </div>
                 <div class="teams-wrapper">
                     <div class="team">
                         <div class="team-header">A 隊 (總星數 <span>0</span>)</div>
-                        ${slotsAHtml}
+                        <div class="team-slots">
+                            ${slotsAHtml}
+                        </div>
                     </div>
                     <div class="vs-divider">
                         <span class="vs-text">VS</span>
@@ -1924,8 +2222,14 @@ function renderMatchUI(shouldSave = false) {
                     </div>
                     <div class="team">
                         <div class="team-header">B 隊 (總星數 <span>0</span>)</div>
-                        ${slotsBHtml}
+                        <div class="team-slots">
+                            ${slotsBHtml}
+                        </div>
                     </div>
+                </div>
+                <div class="court-actions">
+                    ${autoBtnHtml}
+                    ${pushSelectHtml}
                 </div>
             `;
             courtsContainer.appendChild(courtEl);
@@ -1990,7 +2294,7 @@ function renderMatchUI(shouldSave = false) {
 
     allSlots.forEach(slot => {
         if (slot.children.length === 0) {
-            let optionsHtml = `<option value="" disabled selected>請選擇球員</option>`;
+            let optionsHtml = `<option value="" disabled selected>選球員</option>`;
             matchState.pool.forEach(p => {
                 const prioTag = matchConfig.enablePriority ? ` [⚡${getPlayerPriority(p)}]` : '';
                 optionsHtml += `<option value="${p.id}">${p.level}-${p.name}${prioTag}</option>`;

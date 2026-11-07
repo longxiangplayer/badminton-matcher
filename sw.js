@@ -1,4 +1,4 @@
-const CACHE_NAME = 'badminton-matcher-v27';
+const CACHE_NAME = 'badminton-matcher-v37';
 const urlsToCache = [
   './',
   './index.html',

@@ -83,6 +83,34 @@ header,
     letter-spacing: 0.02em;
 }
 
+.btn-orientation-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.68rem;
+    font-weight: 500;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 0.12rem 0.45rem;
+    border-radius: 0.35rem;
+    cursor: pointer;
+    vertical-align: middle;
+    margin-left: 0.45rem;
+    line-height: 1.2;
+    transition: all 0.2s;
+    outline: none;
+}
+.btn-orientation-toggle:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.35);
+}
+.btn-orientation-toggle i {
+    width: 12px;
+    height: 12px;
+}
+
 .subtitle {
     color: var(--text-muted);
     font-size: 0.95rem;
@@ -467,12 +495,190 @@ select {
     width: 100%;
 }
 
-.courts-wrapper:not(.is-vertical-layout) #activeCourtsCard {
+/* 橫式版面：全視窗一整排，每個場地一行 (場地名、清空、下場、隊員一整排)，下個場地往下一行 */
+.courts-wrapper:not(.is-vertical-layout) {
+    width: 100%;
+}
+
+.courts-wrapper:not(.is-vertical-layout) #activeCourtsCard,
+.courts-wrapper:not(.is-vertical-layout) #preCourtsCard {
     order: 1;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
 }
 
 .courts-wrapper:not(.is-vertical-layout) #preCourtsCard {
     order: 2;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .courts-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    width: 100%;
+    overflow: visible;
+    padding-bottom: 0;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .court {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    padding: 0.45rem 0.85rem;
+    gap: 0.85rem;
+    box-sizing: border-box;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .court-header {
+    background: transparent;
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 0.2rem 0.65rem 0.2rem 0.2rem;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.45rem;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 0;
+    flex-shrink: 0;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .court-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.45rem;
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding-left: 0.75rem;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.courts-wrapper:not(.is-vertical-layout) .push-select {
+    width: auto;
+    min-width: 110px;
+    height: 28px;
+    font-size: 0.78rem;
+    padding: 0.15rem 0.4rem;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .court-name-input {
+    width: 72px !important;
+    min-width: 0 !important;
+    max-width: 78px !important;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--primary);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0.35rem;
+    padding: 0.2rem 0.35rem !important;
+    outline: none;
+    text-align: center;
+    box-sizing: border-box !important;
+    flex: 0 0 auto !important;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .court-name-input:focus {
+    border-color: var(--primary);
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.courts-wrapper:not(.is-vertical-layout) .court-title-text {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #38bdf8;
+    white-space: nowrap;
+    padding: 0.2rem 0.45rem;
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: 0.35rem;
+    flex: 0 0 auto;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .teams-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .team {
+    flex: 1;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .team-header {
+    text-align: center;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .team-slots {
+    display: flex;
+    flex-direction: row;
+    gap: 0.4rem;
+    width: 100%;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .team-slots .slot {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 40px;
+    padding: 0.2rem 0.35rem;
+}
+
+.courts-wrapper:not(.is-vertical-layout) .vs-divider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: 0 0.4rem;
+    background: transparent;
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .courts-wrapper:not(.is-vertical-layout) .court {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+        padding: 0.5rem;
+    }
+    .courts-wrapper:not(.is-vertical-layout) .court-header {
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 0 0 0.35rem 0;
+        justify-content: center;
+        width: 100%;
+    }
+    .courts-wrapper:not(.is-vertical-layout) .court-actions {
+        border-left: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 0.35rem 0 0 0;
+        margin-left: 0;
+        justify-content: flex-end;
+        width: 100%;
+    }
 }
 
 /* 直版模式：預備場地在左邊 (order: 1)，上場場地在右邊 (order: 2) */
@@ -601,6 +807,12 @@ select {
     font-size: 0.85rem;
 }
 
+.court-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
 .court-header-top {
     display: flex;
     justify-content: space-between;
@@ -630,8 +842,10 @@ select {
     font-weight: 700;
     font-size: 0.95rem;
     width: 100%;
+    min-width: 0 !important;
     outline: none;
     padding: 0.1rem 0;
+    box-sizing: border-box;
 }
 
 .court-name-input:focus {
@@ -741,21 +955,30 @@ select {
 }
 
 .court-clear-btn {
-    opacity: 0.65;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.8;
     font-size: 0.72rem;
-    padding: 0.18rem 0.4rem;
-    color: var(--text-muted);
-    border-radius: 0.35rem;
-    border: 1px solid transparent;
-    background: transparent;
+    padding: 0.2rem;
+    width: 26px;
+    height: 26px;
+    color: #f87171;
+    border-radius: 0.45rem;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(239, 68, 68, 0.12);
     cursor: pointer;
     transition: all 0.2s;
 }
 .court-clear-btn:hover {
     opacity: 1;
-    color: #ef4444;
-    border-color: rgba(239, 68, 68, 0.3);
-    background: rgba(239, 68, 68, 0.1);
+    color: white;
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.35);
+}
+.court-clear-btn i {
+    width: 14px;
+    height: 14px;
 }
 
 /* Modal Overlay & Dialog */
@@ -820,14 +1043,28 @@ select {
 .teams-wrapper {
     display: flex;
     flex-direction: row;
+    align-items: stretch;
 }
 
 .team {
     flex: 1;
-    padding: 0.75rem;
+    padding: 0.5rem 0.4rem;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.team-slots {
+    display: flex;
+    flex-direction: row;
+    gap: 0.35rem;
+    width: 100%;
+}
+
+.team-slots .slot {
+    flex: 1 1 0;
+    min-width: 0;
 }
 
 .vs-divider {
@@ -836,7 +1073,7 @@ select {
     align-items: center;
     justify-content: center;
     gap: 0.35rem;
-    padding: 0 0.5rem;
+    padding: 0 0.4rem;
     color: var(--secondary);
     background: rgba(255, 255, 255, 0.02);
 }
@@ -844,15 +1081,15 @@ select {
 .vs-text {
     font-weight: 800;
     font-style: italic;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 .mode-badge-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.15rem 0.45rem;
-    font-size: 0.75rem;
+    padding: 0.12rem 0.4rem;
+    font-size: 0.72rem;
     font-weight: 700;
     border-radius: 0.35rem;
     border: 1px solid rgba(139, 92, 246, 0.4);
@@ -876,8 +1113,11 @@ select {
 
 .team-header {
     text-align: center;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* Slots for Players */
@@ -885,17 +1125,36 @@ select {
     background: rgba(255, 255, 255, 0.03);
     border: 2px dashed rgba(255,255,255,0.1);
     border-radius: 0.5rem;
-    min-height: 44px;
+    min-height: 42px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0.25rem;
+    padding: 0.2rem;
     transition: all 0.2s;
+    overflow: hidden;
 }
 
-.court[data-issingles="true"] .team .slot {
+.court[data-issingles="true"] .team-slots .slot {
     margin-top: auto;
     margin-bottom: auto;
+}
+
+/* Draggable Player Chip inside Court */
+.court:not(.is-vertical) .draggable-player {
+    padding: 0.22rem 0.35rem;
+    gap: 0.25rem;
+}
+
+.court:not(.is-vertical) .level-badge {
+    width: 20px;
+    height: 20px;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.court:not(.is-vertical) .player-name {
+    font-size: 0.84rem;
+    font-weight: 600;
 }
 
 /* Vertical Court Layout (上 VS 下) */
@@ -943,6 +1202,13 @@ select {
     font-weight: 700;
 }
 
+.court.is-vertical .team-slots {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    width: 100%;
+}
+
 .court.is-vertical .team .slot {
     width: 100%;
     min-height: 42px;
@@ -973,15 +1239,35 @@ select {
     flex-shrink: 0;
 }
 
-/* Court Header in Vertical Court (按鈕縮小、標題清晰、兩行排版) */
+/* Court Header in Vertical Court (標題置頂、操作置底) */
 .court.is-vertical .court-header {
-    padding: 0.3rem 0.45rem;
-    gap: 0.25rem;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.court.is-vertical .court-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
+    gap: 0.35rem;
+    padding: 0.35rem 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .court.is-vertical .court-name-input {
-    width: 100%;
-    min-width: 0;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 110px !important;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #38bdf8;
+}
     font-size: 0.95rem;
     font-weight: 700;
     color: #38bdf8;
@@ -1051,11 +1337,15 @@ select {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 0.76rem;
     text-align: center;
     cursor: pointer;
     appearance: none;
     outline: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 2px;
 }
 .slot-select option {
     background: #0f172a;
@@ -1076,7 +1366,22 @@ select {
     font-size: 0.9rem;
     cursor: grab;
     user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* 手機與平板觸控拖曳浮動鏡像元件 */
+.touch-drag-avatar {
+    position: fixed !important;
+    z-index: 99999 !important;
+    pointer-events: none !important;
+    opacity: 0.92 !important;
+    transform: translate(-50%, -50%) scale(1.06) !important;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--primary) !important;
+    border-radius: 0.45rem !important;
+    transition: none !important;
+    box-sizing: border-box !important;
 }
 
 .player-name {

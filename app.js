@@ -58,8 +58,8 @@ let clickedPlayerId = null;
 let matchConfig = {
     enablePriority: true,
     priorityStep: 100,
-    unplayedCourtOffset: 1,
-    playedCapCourtOffset: 0,
+    unplayedPriority: 600,
+    maxWaitingPriority: 500,
     confirmFinishMatch: false,
     avoidRecentPartner: true,
     avoidSameCourt: true,
@@ -94,12 +94,11 @@ const playerIsEmployeeCheckbox = document.getElementById('playerIsEmployee');
 const btnPriorityOn = document.getElementById('btnPriorityOn');
 const btnPriorityOff = document.getElementById('btnPriorityOff');
 const cfgPriorityStep = document.getElementById('cfgPriorityStep');
-const cfgUnplayedOffset = document.getElementById('cfgUnplayedOffset');
-const cfgPlayedCapOffset = document.getElementById('cfgPlayedCapOffset');
+const cfgUnplayedPriority = document.getElementById('cfgUnplayedPriority');
+const cfgMaxWaitingPriority = document.getElementById('cfgMaxWaitingPriority');
 const hintUnplayedVal = document.getElementById('hintUnplayedVal');
 const hintMaxWaitingVal = document.getElementById('hintMaxWaitingVal');
-const hintUnplayedFormula = document.getElementById('hintUnplayedFormula');
-const hintMaxWaitingFormula = document.getElementById('hintMaxWaitingFormula');
+const hintStepVal = document.getElementById('hintStepVal');
 const btnAvoidPartnerOn = document.getElementById('btnAvoidPartnerOn');
 const btnAvoidPartnerOff = document.getElementById('btnAvoidPartnerOff');
 const btnAvoidSameCourtOn = document.getElementById('btnAvoidSameCourtOn');
@@ -126,6 +125,10 @@ function getActiveCourtCount() {
 }
 
 function getUnplayedPriority() {
+    if (matchConfig && matchConfig.unplayedPriority !== undefined) {
+        return Math.max(0, Number(matchConfig.unplayedPriority));
+    }
+    // Backward compatibility fallback
     const courtCount = getActiveCourtCount();
     const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 100;
     const offset = (matchConfig && matchConfig.unplayedCourtOffset !== undefined) ? Number(matchConfig.unplayedCourtOffset) : 1;
@@ -133,6 +136,10 @@ function getUnplayedPriority() {
 }
 
 function getMaxWaitingPriority() {
+    if (matchConfig && matchConfig.maxWaitingPriority !== undefined) {
+        return Math.max(0, Number(matchConfig.maxWaitingPriority));
+    }
+    // Backward compatibility fallback
     const courtCount = getActiveCourtCount();
     const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 100;
     const offset = (matchConfig && matchConfig.playedCapCourtOffset !== undefined) ? Number(matchConfig.playedCapCourtOffset) : 0;
@@ -155,31 +162,14 @@ function getPlayerPriority(p) {
 function updateUnplayedHint() {
     const hintUnplayedVal = document.getElementById('hintUnplayedVal');
     const hintMaxWaitingVal = document.getElementById('hintMaxWaitingVal');
-    const hintUnplayedFormula = document.getElementById('hintUnplayedFormula');
-    const hintMaxWaitingFormula = document.getElementById('hintMaxWaitingFormula');
-    const courts = activeCourtCountSelect ? (parseInt(activeCourtCountSelect.value) || 3) : 3;
+    const hintStepVal = document.getElementById('hintStepVal');
     const step = cfgPriorityStep ? (parseInt(cfgPriorityStep.value) || 100) : 100;
-    const unplayedOffset = cfgUnplayedOffset ? (parseInt(cfgUnplayedOffset.value) !== undefined && !isNaN(parseInt(cfgUnplayedOffset.value)) ? parseInt(cfgUnplayedOffset.value) : 1) : 1;
-    const playedCapOffset = cfgPlayedCapOffset ? (parseInt(cfgPlayedCapOffset.value) !== undefined && !isNaN(parseInt(cfgPlayedCapOffset.value)) ? parseInt(cfgPlayedCapOffset.value) : 0) : 0;
+    const unplayedPrio = cfgUnplayedPriority ? (parseInt(cfgUnplayedPriority.value) >= 0 ? parseInt(cfgUnplayedPriority.value) : 600) : 600;
+    const maxWaitingPrio = cfgMaxWaitingPriority ? (parseInt(cfgMaxWaitingPriority.value) >= 0 ? parseInt(cfgMaxWaitingPriority.value) : 500) : 500;
 
-    const unplayedCalc = Math.max(0, (courts + unplayedOffset) * step);
-    const playedCapCalc = Math.max(0, (courts + playedCapOffset) * step);
-
-    if (hintUnplayedVal) hintUnplayedVal.textContent = unplayedCalc;
-    if (hintMaxWaitingVal) hintMaxWaitingVal.textContent = playedCapCalc;
-
-    const formatOffset = (off) => {
-        if (off > 0) return `+ ${off}`;
-        if (off < 0) return `- ${Math.abs(off)}`;
-        return `+ 0`;
-    };
-
-    if (hintUnplayedFormula) {
-        hintUnplayedFormula.textContent = `(場地數 ${formatOffset(unplayedOffset)}) × 點數`;
-    }
-    if (hintMaxWaitingFormula) {
-        hintMaxWaitingFormula.textContent = `(場地數 ${formatOffset(playedCapOffset)}) × 點數`;
-    }
+    if (hintUnplayedVal) hintUnplayedVal.textContent = unplayedPrio;
+    if (hintMaxWaitingVal) hintMaxWaitingVal.textContent = maxWaitingPrio;
+    if (hintStepVal) hintStepVal.textContent = step;
 }
 
 // --- SETTINGS SNAPSHOT & DIRTY CHECKING (防呆保護) ---
@@ -189,8 +179,8 @@ function saveCurrentSettingsSnapshot() {
     savedSettingsSnapshot = {
         enablePriority: matchConfig.enablePriority !== undefined ? Boolean(matchConfig.enablePriority) : true,
         priorityStep: matchConfig.priorityStep !== undefined ? Number(matchConfig.priorityStep) : 100,
-        unplayedCourtOffset: matchConfig.unplayedCourtOffset !== undefined ? Number(matchConfig.unplayedCourtOffset) : 1,
-        playedCapCourtOffset: matchConfig.playedCapCourtOffset !== undefined ? Number(matchConfig.playedCapCourtOffset) : 0,
+        unplayedPriority: matchConfig.unplayedPriority !== undefined ? Number(matchConfig.unplayedPriority) : getUnplayedPriority(),
+        maxWaitingPriority: matchConfig.maxWaitingPriority !== undefined ? Number(matchConfig.maxWaitingPriority) : getMaxWaitingPriority(),
         confirmFinishMatch: matchConfig.confirmFinishMatch !== undefined ? Boolean(matchConfig.confirmFinishMatch) : false,
         avoidRecentPartner: matchConfig.avoidRecentPartner !== undefined ? Boolean(matchConfig.avoidRecentPartner) : true,
         avoidSameCourt: matchConfig.avoidSameCourt !== undefined ? Boolean(matchConfig.avoidSameCourt) : true,
@@ -206,8 +196,8 @@ function getUIConfigValues() {
     return {
         enablePriority: btnPriorityOn ? btnPriorityOn.classList.contains('is-active') : true,
         priorityStep: cfgPriorityStep ? (parseInt(cfgPriorityStep.value) || 100) : 100,
-        unplayedCourtOffset: cfgUnplayedOffset ? (parseInt(cfgUnplayedOffset.value) !== undefined && !isNaN(parseInt(cfgUnplayedOffset.value)) ? parseInt(cfgUnplayedOffset.value) : 1) : 1,
-        playedCapCourtOffset: cfgPlayedCapOffset ? (parseInt(cfgPlayedCapOffset.value) !== undefined && !isNaN(parseInt(cfgPlayedCapOffset.value)) ? parseInt(cfgPlayedCapOffset.value) : 0) : 0,
+        unplayedPriority: cfgUnplayedPriority ? (parseInt(cfgUnplayedPriority.value) >= 0 ? parseInt(cfgUnplayedPriority.value) : 600) : 600,
+        maxWaitingPriority: cfgMaxWaitingPriority ? (parseInt(cfgMaxWaitingPriority.value) >= 0 ? parseInt(cfgMaxWaitingPriority.value) : 500) : 500,
         confirmFinishMatch: btnConfirmFinishOn ? btnConfirmFinishOn.classList.contains('is-active') : false,
         avoidRecentPartner: btnAvoidPartnerOn ? btnAvoidPartnerOn.classList.contains('is-active') : true,
         avoidSameCourt: btnAvoidSameCourtOn ? btnAvoidSameCourtOn.classList.contains('is-active') : true,
@@ -242,8 +232,12 @@ function setUIFromConfig(cfg) {
     if (!cfg) return;
     setToggleState(btnPriorityOn, btnPriorityOff, cfg.enablePriority);
     if (cfgPriorityStep) cfgPriorityStep.value = (cfg.priorityStep !== undefined) ? cfg.priorityStep : 100;
-    if (cfgUnplayedOffset) cfgUnplayedOffset.value = (cfg.unplayedCourtOffset !== undefined) ? cfg.unplayedCourtOffset : 1;
-    if (cfgPlayedCapOffset) cfgPlayedCapOffset.value = (cfg.playedCapCourtOffset !== undefined) ? cfg.playedCapCourtOffset : 0;
+    if (cfgUnplayedPriority) {
+        cfgUnplayedPriority.value = (cfg.unplayedPriority !== undefined) ? cfg.unplayedPriority : (cfg.unplayedCourtOffset !== undefined ? ((cfg.activeCourtCount || 3) + Number(cfg.unplayedCourtOffset)) * (cfg.priorityStep || 100) : 600);
+    }
+    if (cfgMaxWaitingPriority) {
+        cfgMaxWaitingPriority.value = (cfg.maxWaitingPriority !== undefined) ? cfg.maxWaitingPriority : (cfg.playedCapCourtOffset !== undefined ? ((cfg.activeCourtCount || 3) + Number(cfg.playedCapCourtOffset)) * (cfg.priorityStep || 100) : 500);
+    }
 
     setToggleState(btnAvoidPartnerOn, btnAvoidPartnerOff, cfg.avoidRecentPartner);
     setToggleState(btnAvoidSameCourtOn, btnAvoidSameCourtOff, cfg.avoidSameCourt !== undefined ? cfg.avoidSameCourt : true);
@@ -275,11 +269,11 @@ function getSettingsDiffs(current, saved) {
     if (current.priorityStep !== saved.priorityStep) {
         diffs.push(`每輪等待增加點數：${saved.priorityStep} 點 ➔ ${current.priorityStep} 點`);
     }
-    if (current.unplayedCourtOffset !== saved.unplayedCourtOffset) {
-        diffs.push(`未打過者場地係數：場地數 + ${saved.unplayedCourtOffset} ➔ 場地數 + ${current.unplayedCourtOffset}`);
+    if (current.unplayedPriority !== saved.unplayedPriority) {
+        diffs.push(`未打過者優先值：${saved.unplayedPriority} 點 ➔ ${current.unplayedPriority} 點`);
     }
-    if (current.playedCapCourtOffset !== saved.playedCapCourtOffset) {
-        diffs.push(`已打過者上限係數：場地數 + ${saved.playedCapCourtOffset} ➔ 場地數 + ${current.playedCapCourtOffset}`);
+    if (current.maxWaitingPriority !== saved.maxWaitingPriority) {
+        diffs.push(`已打過者等待上限：${saved.maxWaitingPriority} 點 ➔ ${current.maxWaitingPriority} 點`);
     }
     if (current.confirmFinishMatch !== saved.confirmFinishMatch) {
         diffs.push(`下場確認通知：${saved.confirmFinishMatch ? '開啟' : '關閉'} ➔ ${current.confirmFinishMatch ? '開啟' : '關閉'}`);
@@ -310,8 +304,8 @@ function applySettingsFromUI() {
     const cur = getUIConfigValues();
     matchConfig.enablePriority = cur.enablePriority;
     matchConfig.priorityStep = cur.priorityStep;
-    matchConfig.unplayedCourtOffset = cur.unplayedCourtOffset;
-    matchConfig.playedCapCourtOffset = cur.playedCapCourtOffset;
+    matchConfig.unplayedPriority = cur.unplayedPriority;
+    matchConfig.maxWaitingPriority = cur.maxWaitingPriority;
     matchConfig.confirmFinishMatch = cur.confirmFinishMatch;
     matchConfig.avoidRecentPartner = cur.avoidRecentPartner;
     matchConfig.avoidSameCourt = cur.avoidSameCourt;
@@ -359,14 +353,11 @@ if (btnConfirmFinishOn && btnConfirmFinishOff) {
 if (cfgPriorityStep) {
     cfgPriorityStep.addEventListener('input', updateUnplayedHint);
 }
-if (cfgUnplayedOffset) {
-    cfgUnplayedOffset.addEventListener('input', updateUnplayedHint);
+if (cfgUnplayedPriority) {
+    cfgUnplayedPriority.addEventListener('input', updateUnplayedHint);
 }
-if (cfgPlayedCapOffset) {
-    cfgPlayedCapOffset.addEventListener('input', updateUnplayedHint);
-}
-if (activeCourtCountSelect) {
-    activeCourtCountSelect.addEventListener('input', updateUnplayedHint);
+if (cfgMaxWaitingPriority) {
+    cfgMaxWaitingPriority.addEventListener('input', updateUnplayedHint);
 }
 
 if (btnApplyCourts) {
@@ -407,62 +398,178 @@ if (btnToggleCourtOrientation) {
 }
 updateOrientationUI();
 
+// --- SCROLL & VIEW RESTORATION (重新整理不跳畫面) ---
+function saveViewScrollPosition(viewId) {
+    if (!viewId) return;
+    try {
+        sessionStorage.setItem('scrollPos_' + viewId, String(window.scrollY));
+    } catch(e) {}
+}
+
+function restoreViewScrollPosition(viewId) {
+    if (!viewId) return;
+    try {
+        const saved = sessionStorage.getItem('scrollPos_' + viewId);
+        if (saved !== null) {
+            const top = parseInt(saved, 10);
+            if (!isNaN(top)) {
+                requestAnimationFrame(() => {
+                    window.scrollTo({ top, behavior: 'instant' });
+                });
+            }
+        }
+    } catch(e) {}
+}
+
+let scrollSaveTimeout = null;
+window.addEventListener('scroll', () => {
+    if (scrollSaveTimeout) return;
+    scrollSaveTimeout = setTimeout(() => {
+        scrollSaveTimeout = null;
+        const currentActiveView = document.querySelector('.view.active');
+        if (currentActiveView) {
+            saveViewScrollPosition(currentActiveView.id);
+        }
+    }, 100);
+}, { passive: true });
+
+window.addEventListener('beforeunload', () => {
+    const currentActiveView = document.querySelector('.view.active');
+    if (currentActiveView) {
+        saveViewScrollPosition(currentActiveView.id);
+    }
+});
+
+window.addEventListener('pagehide', () => {
+    const currentActiveView = document.querySelector('.view.active');
+    if (currentActiveView) {
+        saveViewScrollPosition(currentActiveView.id);
+    }
+});
+
+function switchView(targetId, skipDirtyCheck = false) {
+    if (!targetId) targetId = 'viewMatch';
+    const target = document.getElementById(targetId);
+    if (!target) return;
+
+    const currentActiveView = document.querySelector('.view.active');
+
+    // If leaving viewSettings, check for unapplied modifications
+    if (!skipDirtyCheck && currentActiveView && currentActiveView.id === 'viewSettings' && targetId !== 'viewSettings') {
+        const currentUI = getUIConfigValues();
+        const diffs = getSettingsDiffs(currentUI, savedSettingsSnapshot);
+        if (diffs.length > 0) {
+            const confirmMsg = `您有以下尚未套用的設定變更：\n\n` + 
+                diffs.map(d => `• ${d}`).join('\n') + 
+                `\n\n是否立即套用變更？\n點選【確定】：立即套用設定並切換畫面\n點選【取消】：放棄未套用的變更並切換畫面`;
+            if (confirm(confirmMsg)) {
+                applySettingsFromUI();
+            } else {
+                restoreSettingsUIFromSnapshot();
+            }
+        }
+    }
+
+    if (currentActiveView) {
+        saveViewScrollPosition(currentActiveView.id);
+    }
+
+    navBtns.forEach(b => {
+        b.classList.toggle('active', b.dataset.target === targetId);
+    });
+
+    views.forEach(v => {
+        const isActive = (v.id === targetId);
+        v.classList.toggle('active', isActive);
+        v.style.display = isActive ? 'block' : 'none';
+    });
+
+    // 僅在排點主頁 (viewMatch) 顯示頂部標題，其他頁面 (viewSettings, viewPlayers) 隱藏頂部
+    const mainHeader = document.getElementById('mainHeader');
+    if (mainHeader) {
+        mainHeader.style.display = (targetId === 'viewMatch') ? 'block' : 'none';
+    }
+
+    if (isPlayerEditMode && btnEditPlayersToggle) {
+        isPlayerEditMode = false;
+        btnEditPlayersToggle.classList.remove('primary-btn');
+        btnEditPlayersToggle.classList.add('outline-btn');
+        btnEditPlayersToggle.innerHTML = `<i data-lucide="edit"></i> 進入編輯`;
+        lucide.createIcons();
+        renderDatabaseList();
+    }
+
+    if (targetId === 'viewSettings') {
+        setUIFromConfig(savedSettingsSnapshot);
+    } else if (targetId === 'viewMatch') {
+        syncStateBeforeMatchView();
+    }
+
+    try {
+        localStorage.setItem('activeView', targetId);
+    } catch(e) {}
+
+    // Clean initial view attribute now that JS has taken over
+    document.documentElement.removeAttribute('data-initial-view');
+
+    restoreViewScrollPosition(targetId);
+}
+
 // --- NAVIGATION WITH DIRTY CHECKING (防呆保護) ---
 navBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-        const currentActiveView = document.querySelector('.view.active');
-        const targetId = btn.dataset.target;
-
-        // If leaving viewSettings, check for unapplied modifications
-        if (currentActiveView && currentActiveView.id === 'viewSettings' && targetId !== 'viewSettings') {
-            const currentUI = getUIConfigValues();
-            const diffs = getSettingsDiffs(currentUI, savedSettingsSnapshot);
-            if (diffs.length > 0) {
-                const confirmMsg = `您有以下尚未套用的設定變更：\n\n` + 
-                    diffs.map(d => `• ${d}`).join('\n') + 
-                    `\n\n是否立即套用變更？\n點選【確定】：立即套用設定並切換畫面\n點選【取消】：放棄未套用的變更並切換畫面`;
-                if (confirm(confirmMsg)) {
-                    applySettingsFromUI();
-                } else {
-                    restoreSettingsUIFromSnapshot();
-                }
-            }
-        }
-
-        navBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-
-        views.forEach(v => {
-            v.classList.remove('active');
-            v.style.display = 'none';
-        });
-
-        const target = document.getElementById(targetId);
-        target.classList.add('active');
-        target.style.display = 'block';
-
-        // 僅在排點主頁 (viewMatch) 顯示頂部標題，其他頁面 (viewSettings, viewPlayers) 隱藏頂部
-        const mainHeader = document.getElementById('mainHeader');
-        if (mainHeader) {
-            mainHeader.style.display = (targetId === 'viewMatch') ? 'block' : 'none';
-        }
-
-        if (isPlayerEditMode && btnEditPlayersToggle) {
-            isPlayerEditMode = false;
-            btnEditPlayersToggle.classList.remove('primary-btn');
-            btnEditPlayersToggle.classList.add('outline-btn');
-            btnEditPlayersToggle.innerHTML = `<i data-lucide="edit"></i> 進入編輯`;
-            lucide.createIcons();
-            renderDatabaseList();
-        }
-
-        if (targetId === 'viewSettings') {
-            setUIFromConfig(savedSettingsSnapshot);
-        } else if (targetId === 'viewMatch') {
-            syncStateBeforeMatchView();
-        }
+        switchView(btn.dataset.target, false);
     });
 });
+
+// In-App Refresh / Sync Button (重新整理並同步雲端資料，不跳畫面)
+const btnRefreshSync = document.getElementById('btnRefreshSync');
+if (btnRefreshSync) {
+    btnRefreshSync.addEventListener('click', async () => {
+        const icon = btnRefreshSync.querySelector('i');
+        const label = document.getElementById('refreshLabel');
+        const currentActiveView = document.querySelector('.view.active');
+        const currentViewId = currentActiveView ? currentActiveView.id : 'viewMatch';
+        const currentScrollY = window.scrollY;
+
+        if (icon) icon.classList.add('spin-animation');
+        if (label) label.textContent = '同步中...';
+
+        try {
+            const doc = await db.collection('badminton').doc('state').get();
+            if (doc.exists) {
+                const data = doc.data();
+                if (data.players) players = data.players;
+                if (data.matchState) matchState = data.matchState;
+                if (data.matchConfig) {
+                    matchConfig = Object.assign({}, matchConfig, data.matchConfig);
+                }
+                saveCurrentSettingsSnapshot();
+                setUIFromConfig(savedSettingsSnapshot);
+                renderDatabaseList();
+                syncPoolWithPlayers();
+                renderMatchUI();
+            }
+            if (label) label.textContent = '已最新';
+            setTimeout(() => {
+                if (label) label.textContent = '重新整理';
+                if (icon) icon.classList.remove('spin-animation');
+                lucide.createIcons();
+            }, 1200);
+        } catch (err) {
+            console.error("Refresh sync error:", err);
+            if (label) label.textContent = '失敗';
+            setTimeout(() => {
+                if (label) label.textContent = '重新整理';
+                if (icon) icon.classList.remove('spin-animation');
+                lucide.createIcons();
+            }, 1500);
+        } finally {
+            window.scrollTo({ top: currentScrollY, behavior: 'instant' });
+            restoreViewScrollPosition(currentViewId);
+        }
+    });
+}
 
 // --- PLAYER MANAGEMENT ---
 playerLevelInput.addEventListener('input', (e) => {
@@ -625,8 +732,8 @@ db.collection('badminton').doc('state').onSnapshot(doc => {
             matchConfig = {
                 enablePriority: data.matchConfig.enablePriority !== undefined ? data.matchConfig.enablePriority : true,
                 priorityStep: data.matchConfig.priorityStep !== undefined ? data.matchConfig.priorityStep : 100,
-                unplayedCourtOffset: data.matchConfig.unplayedCourtOffset !== undefined ? data.matchConfig.unplayedCourtOffset : 1,
-                playedCapCourtOffset: data.matchConfig.playedCapCourtOffset !== undefined ? data.matchConfig.playedCapCourtOffset : 0,
+                unplayedPriority: data.matchConfig.unplayedPriority !== undefined ? data.matchConfig.unplayedPriority : (data.matchConfig.unplayedCourtOffset !== undefined ? ((data.matchConfig.activeCourtsCount || 3) + Number(data.matchConfig.unplayedCourtOffset)) * (data.matchConfig.priorityStep || 100) : 600),
+                maxWaitingPriority: data.matchConfig.maxWaitingPriority !== undefined ? data.matchConfig.maxWaitingPriority : (data.matchConfig.playedCapCourtOffset !== undefined ? ((data.matchConfig.activeCourtsCount || 3) + Number(data.matchConfig.playedCapCourtOffset)) * (data.matchConfig.priorityStep || 100) : 500),
                 confirmFinishMatch: data.matchConfig.confirmFinishMatch !== undefined ? data.matchConfig.confirmFinishMatch : false,
                 avoidRecentPartner: data.matchConfig.avoidRecentPartner !== undefined ? data.matchConfig.avoidRecentPartner : true,
                 avoidSameCourt: data.matchConfig.avoidSameCourt !== undefined ? data.matchConfig.avoidSameCourt : true,
@@ -640,9 +747,16 @@ db.collection('badminton').doc('state').onSnapshot(doc => {
         setUIFromConfig(savedSettingsSnapshot);
 
         if (!draggedPlayerId && !clickedPlayerId && !isPlayerEditMode) {
+            const currentScrollY = window.scrollY;
+            const currentActiveView = document.querySelector('.view.active');
             renderDatabaseList();
             syncPoolWithPlayers();
             renderMatchUI();
+            if (currentActiveView) {
+                restoreViewScrollPosition(currentActiveView.id);
+            } else {
+                window.scrollTo({ top: currentScrollY, behavior: 'instant' });
+            }
         }
     }
 });
@@ -2324,8 +2438,14 @@ function renderMatchUI(shouldSave = false) {
 }
 
 // Initial Boot
+const savedActiveView = localStorage.getItem('activeView') || 'viewMatch';
 saveCurrentSettingsSnapshot();
 setUIFromConfig(savedSettingsSnapshot);
 renderDatabaseList();
 syncPoolWithPlayers();
 renderMatchUI();
+switchView(savedActiveView, true);
+lucide.createIcons();
+setTimeout(() => {
+    restoreViewScrollPosition(savedActiveView);
+}, 50);

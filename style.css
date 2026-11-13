@@ -26,6 +26,10 @@
     padding: 0;
 }
 
+html, body {
+    overscroll-behavior-y: contain;
+}
+
 body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     background-color: var(--bg-color);
@@ -68,6 +72,9 @@ header,
     color: white;
     display: inline-flex;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.35rem;
 }
 
 .version-tag {
@@ -109,6 +116,41 @@ header,
 .btn-orientation-toggle i {
     width: 12px;
     height: 12px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+.spin-animation {
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+}
+
+/* Zero-flash View Restoration on Page Reload (重新整理不跳畫面) */
+html[data-initial-view="viewSettings"] #viewMatch,
+html[data-initial-view="viewPlayers"] #viewMatch {
+    display: none !important;
+}
+html[data-initial-view="viewSettings"] #viewSettings {
+    display: block !important;
+}
+html[data-initial-view="viewPlayers"] #viewPlayers {
+    display: block !important;
+}
+html[data-initial-view="viewSettings"] #mainHeader,
+html[data-initial-view="viewPlayers"] #mainHeader {
+    display: none !important;
+}
+html[data-initial-view="viewSettings"] .nav-btn[data-target="viewMatch"],
+html[data-initial-view="viewPlayers"] .nav-btn[data-target="viewMatch"] {
+    color: var(--text-muted) !important;
+}
+html[data-initial-view="viewSettings"] .nav-btn[data-target="viewSettings"] {
+    color: var(--primary) !important;
+}
+html[data-initial-view="viewPlayers"] .nav-btn[data-target="viewPlayers"] {
+    color: var(--primary) !important;
 }
 
 .subtitle {

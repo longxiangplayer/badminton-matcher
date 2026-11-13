@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>羽球分隊系統</title>
-    <link rel="stylesheet" href="style.css?v=37">
+    <link rel="stylesheet" href="style.css?v=39">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
@@ -12,6 +12,17 @@
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0f172a">
+    <!-- Zero-flash View Restoration (重新整理不跳畫面) -->
+    <script>
+        (function() {
+            try {
+                var saved = localStorage.getItem('activeView');
+                if (saved === 'viewSettings' || saved === 'viewPlayers') {
+                    document.documentElement.setAttribute('data-initial-view', saved);
+                }
+            } catch(e) {}
+        })();
+    </script>
     <!-- Firebase Compat SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore-compat.js"></script>
@@ -22,9 +33,12 @@
             <div class="logo">
                 <i data-lucide="feather"></i>
                 <h1>
-                    羽球分隊系統 <small class="version-tag">v37</small>
+                    羽球分隊系統 <small class="version-tag">v39</small>
                     <button id="btnToggleCourtOrientation" class="btn-orientation-toggle" title="切換場地排列 (橫式 / 直式)">
                         <i data-lucide="rows-2"></i> <span id="orientationLabel">橫式</span>
+                    </button>
+                    <button id="btnRefreshSync" class="btn-orientation-toggle" title="重新整理並同步雲端資料 (不跳畫面)">
+                        <i data-lucide="refresh-cw"></i> <span id="refreshLabel">重新整理</span>
                     </button>
                 </h1>
             </div>
@@ -94,48 +108,54 @@
                                 <button id="btnPriorityOff" class="btn" style="border-radius: 0; padding: 0.35rem 0.85rem; font-size: 0.85rem; background: rgba(15,23,42,0.6); color: var(--text-muted);">關</button>
                             </div>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                            <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+                            <!-- 1. 每輪等待增加點數 -->
+                            <div style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.2); padding: 0.85rem 1rem; border-radius: 0.65rem; border: 1px solid rgba(255,255,255,0.06);">
                                 <div>
                                     <div style="font-weight: 600; font-size: 0.95rem; color: white; margin-bottom: 0.25rem;">每輪等待增加點數</div>
-                                    <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">剛下場者優先值歸 0 休息；留在候補區者每過一場自動增加此點數。</p>
+                                    <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0;">剛下場者優先值歸 0 休息；留在候補區者每過一場自動增加此點數。</p>
                                 </div>
-                                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <input type="number" id="cfgPriorityStep" min="1" max="500" value="100" style="width: 70px; padding: 0.45rem; font-size: 1rem; background: rgba(15,23,42,0.6); border: 1px solid var(--border); color: white; border-radius: 0.5rem; text-align: center;">
+                                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                    <input type="number" id="cfgPriorityStep" min="1" max="9999" value="100" style="width: 80px; padding: 0.4rem; font-size: 1rem; background: rgba(15,23,42,0.8); border: 1px solid var(--border); color: white; border-radius: 0.4rem; text-align: center; font-weight: 700;">
                                     <span style="font-size: 0.85rem; color: var(--text-muted);">點 / 場</span>
                                 </div>
                             </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 0.5rem; border: 1px solid rgba(255,255,255,0.06);">
-                                <!-- 未打過者加成 -->
-                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+
+                            <!-- 2 & 3: 未打過者優先值 與 已打過者等待上限 (自由設定) -->
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.85rem;">
+                                <!-- 未打過者優先值 (自由設定) -->
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: rgba(0,0,0,0.2); padding: 0.85rem 1rem; border-radius: 0.65rem; border: 1px solid rgba(255,255,255,0.06);">
                                     <div>
-                                        <div style="font-size: 0.85rem; font-weight: 600; color: #38bdf8;">未打過者場地係數</div>
-                                        <p style="font-size: 0.72rem; color: var(--text-muted); margin: 0;">預設：場地數 + 1 (可設 +2, +1, 0, -1 等)</p>
+                                        <div style="font-size: 0.92rem; font-weight: 600; color: #38bdf8; margin-bottom: 0.2rem;">未打過者優先值</div>
+                                        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">當日未打過者固定擁有的優先值點數</p>
                                     </div>
-                                    <div style="display: flex; align-items: center; gap: 0.35rem;">
-                                        <span style="font-size: 0.8rem; color: var(--text-muted);">場地數 +</span>
-                                        <input type="number" id="cfgUnplayedOffset" min="-5" max="10" value="1" style="width: 52px; padding: 0.35rem; font-size: 0.95rem; background: rgba(15,23,42,0.8); border: 1px solid var(--border); color: #38bdf8; border-radius: 0.4rem; text-align: center; font-weight: 700;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                        <input type="number" id="cfgUnplayedPriority" min="0" max="99999" value="600" style="width: 80px; padding: 0.4rem; font-size: 1rem; background: rgba(15,23,42,0.8); border: 1px solid var(--border); color: #38bdf8; border-radius: 0.4rem; text-align: center; font-weight: 700;">
+                                        <span style="font-size: 0.85rem; color: var(--text-muted);">點</span>
                                     </div>
                                 </div>
-                                <!-- 已打過者等待上限 -->
-                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+
+                                <!-- 已打過者等待上限 (自由設定) -->
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; background: rgba(0,0,0,0.2); padding: 0.85rem 1rem; border-radius: 0.65rem; border: 1px solid rgba(255,255,255,0.06);">
                                     <div>
-                                        <div style="font-size: 0.85rem; font-weight: 600; color: #34d399;">已打過等待上限係數</div>
-                                        <p style="font-size: 0.72rem; color: var(--text-muted); margin: 0;">預設：場地數 + 0 (可設 +1, 0, -1 等)</p>
+                                        <div style="font-size: 0.92rem; font-weight: 600; color: #34d399; margin-bottom: 0.2rem;">已打過者等待上限</div>
+                                        <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;">打過下場者在候補區累積加點的封頂上限</p>
                                     </div>
-                                    <div style="display: flex; align-items: center; gap: 0.35rem;">
-                                        <span style="font-size: 0.8rem; color: var(--text-muted);">場地數 +</span>
-                                        <input type="number" id="cfgPlayedCapOffset" min="-5" max="10" value="0" style="width: 52px; padding: 0.35rem; font-size: 0.95rem; background: rgba(15,23,42,0.8); border: 1px solid var(--border); color: #34d399; border-radius: 0.4rem; text-align: center; font-weight: 700;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                        <input type="number" id="cfgMaxWaitingPriority" min="0" max="99999" value="500" style="width: 80px; padding: 0.4rem; font-size: 1rem; background: rgba(15,23,42,0.8); border: 1px solid var(--border); color: #34d399; border-radius: 0.4rem; text-align: center; font-weight: 700;">
+                                        <span style="font-size: 0.85rem; color: var(--text-muted);">點</span>
                                     </div>
                                 </div>
                             </div>
-                            <div id="unplayedPriorityHint" style="font-size: 0.85rem; color: #38bdf8; background: rgba(56,189,248,0.1); padding: 0.6rem 0.85rem; border-radius: 0.5rem; border: 1px solid rgba(56,189,248,0.25); display: flex; flex-direction: column; gap: 0.35rem;">
+
+                            <!-- 即時狀態提示 -->
+                            <div id="unplayedPriorityHint" style="font-size: 0.85rem; color: #38bdf8; background: rgba(56,189,248,0.08); padding: 0.75rem 1rem; border-radius: 0.65rem; border: 1px solid rgba(56,189,248,0.2); display: flex; flex-direction: column; gap: 0.35rem;">
                                 <div style="display: flex; align-items: center; gap: 0.45rem;">
                                     <i data-lucide="info" style="width: 16px; height: 16px; flex-shrink: 0;"></i>
-                                    <span>未打過者優先值：<span id="hintUnplayedFormula">(場地數 + 1) × 點數</span> = <b id="hintUnplayedVal" style="color: #38bdf8; font-size: 1rem;">600</b> 點 (永遠最優先)</span>
+                                    <span>未打過者優先值：<b id="hintUnplayedVal" style="color: #38bdf8; font-size: 1rem;">600</b> 點（固定最高，最優先上場）</span>
                                 </div>
                                 <div style="padding-left: 1.45rem; color: #94a3b8; font-size: 0.8rem;">
-                                    已打過者等待上限：<span id="hintMaxWaitingFormula">(場地數 + 0) × 點數</span> = <b id="hintMaxWaitingVal" style="color: #34d399; font-size: 0.95rem;">500</b> 點 (達到上限不再增加)
+                                    已打過者等待上限：<b id="hintMaxWaitingVal" style="color: #34d399; font-size: 0.95rem;">500</b> 點（下場由 0 開始，每過一場 +<span id="hintStepVal">100</span> 點，達上限不再累加）
                                 </div>
                             </div>
                         </div>
@@ -408,6 +428,6 @@
         </div>
     </div>
     
-    <script src="app.js?v=37"></script>
+    <script src="app.js?v=39"></script>
 </body>
 </html>

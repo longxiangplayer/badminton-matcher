@@ -148,6 +148,9 @@ function getMaxWaitingPriority() {
 
 function getPlayerPriority(p) {
     if (!p) return 0;
+    if (p.customPriority && p.priority !== undefined && p.priority !== null) {
+        return Math.max(0, Number(p.priority));
+    }
     const isUnplayed = !p.matchCount || p.matchCount === 0;
     if (isUnplayed) {
         return getUnplayedPriority();
@@ -693,6 +696,16 @@ function saveMatchState() {
     db.collection('badminton').doc('state').set({ matchState, lastModified: now }, { merge: true });
 }
 
+function savePlayersAndMatchState() {
+    if (!players || players.length === 0) {
+        console.warn("Blocked saving empty players list to prevent accidental overwrite");
+        return;
+    }
+    const now = Date.now();
+    recordLocalModification();
+    db.collection('badminton').doc('state').set({ players, matchState, lastModified: now }, { merge: true });
+}
+
 // --- FIRESTORE REALTIME SYNC ---
 db.collection('badminton').doc('state').onSnapshot(doc => {
     if (doc.exists) {
@@ -811,16 +824,46 @@ window.updatePlayerLevel = (id, newLevel) => {
     }
 };
 
+function resetPlayerOnAttend(p, keepTodayMatches = true) {
+    if (!p) return;
+    const today = new Date().toLocaleDateString('zh-TW');
+    const isNewDay = (p.lastDate !== today);
+
+    // 若非今日最後出席紀錄（跨日或首次出席），或同日重新出席但選擇不保留場數，一併清除場數與避開紀錄
+    if (isNewDay || keepTodayMatches === false) {
+        p.matchCount = 0;
+        p.lastPartnerId = null;
+        p.lastCourtPlayerIds = null;
+    }
+
+    // 球員出席時一律將優先值 Reset 一次（不帶著上次的記憶）
+    p.customPriority = false;
+    const isUnplayed = !p.matchCount || p.matchCount === 0;
+    p.priority = isUnplayed ? getUnplayedPriority() : getMaxWaitingPriority();
+}
+
 window.toggleIsPlaying = (id, checked) => {
     const p = players.find(x => x.id === id);
     if (p) {
+        const wasPlaying = Boolean(p.isPlaying);
         p.isPlaying = checked;
-        // If becoming active and has no priority, initialize with formula value
-        if (checked && (p.priority === undefined || p.priority === null)) {
-            p.priority = getUnplayedPriority();
+        // 球員勾選出席時，先將優先值 Reset 一次，不帶著上次的記憶
+        if (checked && !wasPlaying) {
+            const today = new Date().toLocaleDateString('zh-TW');
+            let keepTodayMatches = true;
+            // 同日取消出席後再重新勾選出席：若已有上場數，先確認是否保留
+            if (p.lastDate === today && (p.matchCount || 0) > 0) {
+                keepTodayMatches = confirm(
+                    `【${p.name}】今日已有 ${p.matchCount} 場紀錄，是否保留已上場數？\n\n` +
+                    `・按【確定】：保留 ${p.matchCount} 場，優先值重置為等待上限（${getMaxWaitingPriority()} 點）\n` +
+                    `・按【取消】：一併清除場數歸 0 與避開紀錄，優先值重置為未打過值（${getUnplayedPriority()} 點）`
+                );
+            }
+            resetPlayerOnAttend(p, keepTodayMatches);
         }
     }
-    savePlayers();
+    syncPoolWithPlayers();
+    savePlayersAndMatchState();
     updatePlayingCount();
     renderDatabaseList();
 
@@ -837,15 +880,29 @@ window.toggleEmployee = (id, checked) => {
 
 function recordAttendance() {
     const today = new Date().toLocaleDateString('zh-TW');
+    const unplayedVal = getUnplayedPriority();
     let updated = false;
     players.forEach(p => {
         if (p.isPlaying) {
             if (p.lastDate !== today) {
                 p.attendance = (p.attendance || 0) + 1;
                 p.matchCount = 0;
+                p.priority = unplayedVal;
+                p.customPriority = false;
                 p.lastPartnerId = null;
                 p.lastCourtPlayerIds = null;
                 p.lastDate = today;
+                if (matchState && matchState.pool) {
+                    const poolP = matchState.pool.find(x => x && x.id === p.id);
+                    if (poolP && poolP !== p) {
+                        poolP.matchCount = 0;
+                        poolP.priority = unplayedVal;
+                        poolP.customPriority = false;
+                        poolP.lastPartnerId = null;
+                        poolP.lastCourtPlayerIds = null;
+                        poolP.lastDate = today;
+                    }
+                }
                 updated = true;
             }
         }
@@ -873,7 +930,8 @@ if (btnClearAttendance) {
     btnClearAttendance.addEventListener('click', () => {
         if (confirm('確定要取消所有人的出席勾選嗎？')) {
             players.forEach(p => p.isPlaying = false);
-            savePlayers();
+            syncPoolWithPlayers();
+            savePlayersAndMatchState();
             renderDatabaseList();
             updatePlayingCount();
         }
@@ -883,8 +941,25 @@ const btnSelectAllAttendance = document.getElementById('btnSelectAllAttendance')
 if (btnSelectAllAttendance) {
     btnSelectAllAttendance.addEventListener('click', () => {
         if (confirm('確定要將所有人設為出席嗎？')) {
-            players.forEach(p => p.isPlaying = true);
-            savePlayers();
+            const today = new Date().toLocaleDateString('zh-TW');
+            const sameDayReturning = players.filter(p => !p.isPlaying && p.lastDate === today && (p.matchCount || 0) > 0);
+            let keepTodayMatches = true;
+            if (sameDayReturning.length > 0) {
+                keepTodayMatches = confirm(
+                    `本次新勾選的球員中，有 ${sameDayReturning.length} 位今日已有上場紀錄，是否保留他們的已上場數？\n\n` +
+                    `・按【確定】：保留今日場數，優先值重置為等待上限（${getMaxWaitingPriority()} 點）\n` +
+                    `・按【取消】：一併清除今日場數與避開紀錄，優先值重置為未打過值（${getUnplayedPriority()} 點）`
+                );
+            }
+            players.forEach(p => {
+                const wasPlaying = Boolean(p.isPlaying);
+                p.isPlaying = true;
+                if (!wasPlaying || p.lastDate !== today) {
+                    resetPlayerOnAttend(p, keepTodayMatches);
+                }
+            });
+            syncPoolWithPlayers();
+            savePlayersAndMatchState();
             renderDatabaseList();
             updatePlayingCount();
         }
@@ -909,14 +984,19 @@ const btnClearPoolMatches = document.getElementById('btnClearPoolMatches');
 if (btnClearPoolMatches) {
     btnClearPoolMatches.addEventListener('click', () => {
         if (confirm('確定要清空所有人的當日上場次數嗎？')) {
+            const unplayedVal = getUnplayedPriority();
             players.forEach(p => {
                 p.matchCount = 0;
+                p.priority = unplayedVal;
+                p.customPriority = false;
                 p.lastPartnerId = null;
                 p.lastCourtPlayerIds = null;
             });
             if (matchState && matchState.pool) {
                 matchState.pool.forEach(p => {
                     p.matchCount = 0;
+                    p.priority = unplayedVal;
+                    p.customPriority = false;
                     p.lastPartnerId = null;
                     p.lastCourtPlayerIds = null;
                 });
@@ -937,8 +1017,12 @@ if (btnClearRestStatus) {
                 matchState.pool.forEach(p => {
                     const isUnplayed = !p.matchCount || p.matchCount === 0;
                     p.priority = isUnplayed ? unplayedVal : maxWaitingVal;
+                    p.customPriority = false;
                     const globalP = players.find(x => x.id === p.id);
-                    if (globalP) globalP.priority = p.priority;
+                    if (globalP) {
+                        globalP.priority = p.priority;
+                        globalP.customPriority = false;
+                    }
                 });
             }
             savePlayers();
@@ -1154,21 +1238,26 @@ function readStateFromDOM() {
 }
 
 function syncPoolWithPlayers() {
-    const activeIds = players.filter(p => p.isPlaying !== false).map(p => p.id);
+    const activeMap = new Map();
+    players.forEach(p => {
+        if (p.isPlaying !== false) activeMap.set(p.id, p);
+    });
     matchState.activeCourts = matchState.activeCourts || [];
     matchState.courts = matchState.courts || [];
     matchState.pool = matchState.pool || [];
 
     for (let c of matchState.activeCourts) {
-        c.teamA = c.teamA.map(p => p && activeIds.includes(p.id) ? p : null);
-        c.teamB = c.teamB.map(p => p && activeIds.includes(p.id) ? p : null);
+        c.teamA = c.teamA.map(p => (p && activeMap.has(p.id)) ? activeMap.get(p.id) : null);
+        c.teamB = c.teamB.map(p => (p && activeMap.has(p.id)) ? activeMap.get(p.id) : null);
     }
     for (let c of matchState.courts) {
-        c.teamA = c.teamA.map(p => p && activeIds.includes(p.id) ? p : null);
-        c.teamB = c.teamB.map(p => p && activeIds.includes(p.id) ? p : null);
+        c.teamA = c.teamA.map(p => (p && activeMap.has(p.id)) ? activeMap.get(p.id) : null);
+        c.teamB = c.teamB.map(p => (p && activeMap.has(p.id)) ? activeMap.get(p.id) : null);
     }
 
-    matchState.pool = matchState.pool.filter(p => p && activeIds.includes(p.id));
+    matchState.pool = matchState.pool
+        .filter(p => p && activeMap.has(p.id))
+        .map(p => activeMap.get(p.id));
 
     const assignedIds = new Set();
     matchState.activeCourts.forEach(c => {
@@ -1354,10 +1443,13 @@ window.finishActiveMatch = (courtIndex) => {
             matchState.pool.forEach(poolP => {
                 const globalP = players.find(x => x.id === poolP.id);
                 const isUnplayed = !poolP.matchCount || poolP.matchCount === 0;
-                if (isUnplayed) {
+                const curPrio = getPlayerPriority(poolP);
+                if (poolP.customPriority) {
+                    const cap = isUnplayed ? Math.max(unplayedPrio, curPrio) : Math.max(maxWaitingPrio, curPrio);
+                    poolP.priority = Math.min(curPrio + step, cap);
+                } else if (isUnplayed) {
                     poolP.priority = unplayedPrio;
                 } else {
-                    const curPrio = getPlayerPriority(poolP);
                     poolP.priority = Math.min(curPrio + step, maxWaitingPrio);
                 }
                 if (globalP) globalP.priority = poolP.priority;
@@ -1370,9 +1462,13 @@ window.finishActiveMatch = (courtIndex) => {
             if (globalPlayer) {
                 globalPlayer.matchCount = (globalPlayer.matchCount || 0) + 1;
                 globalPlayer.priority = 0;
+                globalPlayer.customPriority = false;
             }
-            p.matchCount = (p.matchCount || 0) + 1;
+            if (p !== globalPlayer) {
+                p.matchCount = (p.matchCount || 0) + 1;
+            }
             p.priority = 0;
+            p.customPriority = false;
             matchState.pool.push(globalPlayer || p);
         });
     } else {
@@ -1459,8 +1555,8 @@ function executePushToActive(preIdx, activeIdx, mode) {
             recordAttendance();
             recordCourtPartners(activeCourt);
 
-            // 候補區等待中的球員增加優先值 (最高上限為 場地數 x 點數，一場未打者維持 (場地數+1) x 點數)
-            const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 25;
+            // 候補區等待中的球員增加優先值
+            const step = (matchConfig && matchConfig.priorityStep) ? matchConfig.priorityStep : 100;
             const maxWaitingPrio = getMaxWaitingPriority();
             const unplayedPrio = getUnplayedPriority();
 
@@ -1468,10 +1564,13 @@ function executePushToActive(preIdx, activeIdx, mode) {
                 matchState.pool.forEach(poolP => {
                     const globalP = players.find(x => x.id === poolP.id);
                     const isUnplayed = !poolP.matchCount || poolP.matchCount === 0;
-                    if (isUnplayed) {
+                    const curPrio = getPlayerPriority(poolP);
+                    if (poolP.customPriority) {
+                        const cap = isUnplayed ? Math.max(unplayedPrio, curPrio) : Math.max(maxWaitingPrio, curPrio);
+                        poolP.priority = Math.min(curPrio + step, cap);
+                    } else if (isUnplayed) {
                         poolP.priority = unplayedPrio;
                     } else {
-                        const curPrio = getPlayerPriority(poolP);
                         poolP.priority = Math.min(curPrio + step, maxWaitingPrio);
                     }
                     if (globalP) globalP.priority = poolP.priority;
@@ -1483,9 +1582,13 @@ function executePushToActive(preIdx, activeIdx, mode) {
                 if (globalPlayer) {
                     globalPlayer.matchCount = (globalPlayer.matchCount || 0) + 1;
                     globalPlayer.priority = 0;
+                    globalPlayer.customPriority = false;
                 }
-                p.matchCount = (p.matchCount || 0) + 1;
+                if (p !== globalPlayer) {
+                    p.matchCount = (p.matchCount || 0) + 1;
+                }
                 p.priority = 0;
+                p.customPriority = false;
                 matchState.pool.push(globalPlayer || p);
             });
         } else if (mode === 'clearOnly') {
@@ -1941,8 +2044,8 @@ function createPlayerEl(p, state) {
     if (prio === 0) prioClass += ' zero';
     else if (prio >= unplayedPrio) prioClass += ' max';
 
-    const prioHtml = (state === 'pool' && matchConfig.enablePriority) ? `<span class="${prioClass}" title="等待優先值">⚡${prio}</span>` : '';
-    const matchCountHtml = (state === 'pool' || state === 'ghost') ? `<span class="match-count-badge" title="今日場數">${p.matchCount || 0}場</span>` : '';
+    const prioHtml = (state === 'pool' && matchConfig.enablePriority) ? `<span class="${prioClass}" title="等待優先值（點擊修改狀態）">⚡${prio}</span>` : '';
+    const matchCountHtml = (state === 'pool' || state === 'ghost') ? `<span class="match-count-badge" title="${state === 'pool' ? '今日場數（點擊修改狀態）' : '今日場數'}">${p.matchCount || 0}場</span>` : '';
 
     el.innerHTML = `
         <span class="level-badge level-${p.level}">${p.level}</span>
@@ -1952,6 +2055,21 @@ function createPlayerEl(p, state) {
     `;
 
     if (state !== 'ghost') {
+        if (state === 'pool') {
+            // 方案 A：點擊候補區球員卡上的「⚡優先值」或「X場」標籤直接開啟狀態編輯欄（不與單點換位/拖曳衝突）
+            el.querySelectorAll('.priority-badge, .match-count-badge').forEach(badge => {
+                badge.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openPlayerStatusModal(p.id);
+                });
+            });
+            // 電腦版雙擊卡片亦可開啟狀態編輯欄
+            el.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                openPlayerStatusModal(p.id);
+            });
+        }
+
         el.addEventListener('dragstart', (e) => {
             draggedPlayerId = p.id;
             e.dataTransfer.effectAllowed = 'move';
@@ -1985,10 +2103,13 @@ function createPlayerEl(p, state) {
         let touchStartX = 0;
         let touchStartY = 0;
         let isTouchDragging = false;
+        let touchStartedOnBadge = false;
         let touchAvatar = null;
 
         el.addEventListener('touchstart', (e) => {
             if (e.touches.length !== 1) return;
+            touchStartedOnBadge = Boolean(state === 'pool' && e.target.closest('.priority-badge, .match-count-badge'));
+            if (touchStartedOnBadge) return;
             const touch = e.touches[0];
             touchStartX = touch.clientX;
             touchStartY = touch.clientY;
@@ -1996,7 +2117,7 @@ function createPlayerEl(p, state) {
         }, { passive: true });
 
         el.addEventListener('touchmove', (e) => {
-            if (e.touches.length !== 1) return;
+            if (e.touches.length !== 1 || touchStartedOnBadge) return;
             const touch = e.touches[0];
             const dx = touch.clientX - touchStartX;
             const dy = touch.clientY - touchStartY;
@@ -2436,6 +2557,182 @@ function renderMatchUI(shouldSave = false) {
     updateCourtLevelSums();
     lucide.createIcons();
 }
+
+// ----------------------------------------------------
+// PLAYER STATUS EDIT MODAL (候補區即時修改球員狀態)
+// ----------------------------------------------------
+let editingStatusPlayerId = null;
+let editingStatusClearHistory = false;
+let editingStatusOrigPrio = 0;
+
+function closePlayerStatusModal() {
+    const modal = document.getElementById('playerStatusModal');
+    if (modal) modal.style.display = 'none';
+    editingStatusPlayerId = null;
+    editingStatusClearHistory = false;
+}
+
+function renderStatusHistoryBox(p) {
+    const box = document.getElementById('statusHistoryInfo');
+    if (!box) return;
+    if (editingStatusClearHistory) {
+        box.innerHTML = `<span style="color: #fb923c;">已標記清除避開紀錄（點擊「儲存」後生效）</span>`;
+        return;
+    }
+    const findName = (id) => {
+        const found = players.find(x => x.id === id);
+        return found ? found.name : null;
+    };
+    const partnerName = p.lastPartnerId ? findName(p.lastPartnerId) : null;
+    const courtNames = Array.isArray(p.lastCourtPlayerIds)
+        ? p.lastCourtPlayerIds.map(findName).filter(Boolean)
+        : [];
+    box.innerHTML =
+        `<div>上一場搭檔：<b style="color: white;">${partnerName || '無'}</b></div>` +
+        `<div>上一場同場：<b style="color: white;">${courtNames.length > 0 ? courtNames.join('、') : '無'}</b></div>`;
+}
+
+function openPlayerStatusModal(playerId) {
+    const p = players.find(x => x.id === playerId);
+    const modal = document.getElementById('playerStatusModal');
+    if (!p || !modal) return;
+
+    // 清除任何點擊選取高亮，避免衝突
+    clickedPlayerId = null;
+    removeHighlights();
+
+    editingStatusPlayerId = playerId;
+    editingStatusClearHistory = false;
+    editingStatusOrigPrio = getPlayerPriority(p);
+
+    const titleEl = document.getElementById('statusModalTitle');
+    const prioInput = document.getElementById('statusEditPriority');
+    const matchInput = document.getElementById('statusEditMatchCount');
+    const btnUnplayed = document.getElementById('btnStatusPrioUnplayed');
+    const btnCap = document.getElementById('btnStatusPrioCap');
+
+    if (titleEl) titleEl.textContent = `${p.name} — 狀態設定`;
+    if (prioInput) prioInput.value = editingStatusOrigPrio;
+    if (matchInput) matchInput.value = p.matchCount || 0;
+    if (btnUnplayed) btnUnplayed.textContent = `未打過 (${getUnplayedPriority()})`;
+    if (btnCap) btnCap.textContent = `上限 (${getMaxWaitingPriority()})`;
+
+    renderStatusHistoryBox(p);
+
+    modal.style.display = 'flex';
+    lucide.createIcons();
+}
+
+(function initPlayerStatusModal() {
+    const modal = document.getElementById('playerStatusModal');
+    if (!modal) return;
+
+    const btnClose = document.getElementById('btnCloseStatusModal');
+    const btnCancel = document.getElementById('btnStatusCancel');
+    const btnSave = document.getElementById('btnStatusSave');
+    const btnLeave = document.getElementById('btnStatusLeave');
+    const prioInput = document.getElementById('statusEditPriority');
+    const matchInput = document.getElementById('statusEditMatchCount');
+    const btnUnplayed = document.getElementById('btnStatusPrioUnplayed');
+    const btnCap = document.getElementById('btnStatusPrioCap');
+    const btnZero = document.getElementById('btnStatusPrioZero');
+    const btnMatchMinus = document.getElementById('btnStatusMatchMinus');
+    const btnMatchPlus = document.getElementById('btnStatusMatchPlus');
+    const btnMatchZero = document.getElementById('btnStatusMatchZero');
+    const btnClearHistory = document.getElementById('btnStatusClearHistory');
+
+    if (btnClose) btnClose.addEventListener('click', closePlayerStatusModal);
+    if (btnCancel) btnCancel.addEventListener('click', closePlayerStatusModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closePlayerStatusModal();
+    });
+
+    if (btnUnplayed && prioInput) {
+        btnUnplayed.addEventListener('click', () => { prioInput.value = getUnplayedPriority(); });
+    }
+    if (btnCap && prioInput) {
+        btnCap.addEventListener('click', () => { prioInput.value = getMaxWaitingPriority(); });
+    }
+    if (btnZero && prioInput) {
+        btnZero.addEventListener('click', () => { prioInput.value = 0; });
+    }
+
+    if (btnMatchMinus && matchInput) {
+        btnMatchMinus.addEventListener('click', () => {
+            const cur = parseInt(matchInput.value, 10) || 0;
+            matchInput.value = Math.max(0, cur - 1);
+        });
+    }
+    if (btnMatchPlus && matchInput) {
+        btnMatchPlus.addEventListener('click', () => {
+            const cur = parseInt(matchInput.value, 10) || 0;
+            matchInput.value = cur + 1;
+        });
+    }
+    if (btnMatchZero && matchInput) {
+        btnMatchZero.addEventListener('click', () => {
+            matchInput.value = 0;
+        });
+    }
+
+    if (btnClearHistory) {
+        btnClearHistory.addEventListener('click', () => {
+            editingStatusClearHistory = true;
+            const p = players.find(x => x.id === editingStatusPlayerId);
+            if (p) renderStatusHistoryBox(p);
+        });
+    }
+
+    if (btnLeave) {
+        btnLeave.addEventListener('click', () => {
+            const p = players.find(x => x.id === editingStatusPlayerId);
+            if (!p) return;
+            if (!confirm(`確定要將【${p.name}】設為取消出席（暫時離場）嗎？`)) return;
+            p.isPlaying = false;
+            syncPoolWithPlayers();
+            savePlayersAndMatchState();
+            updatePlayingCount();
+            renderMatchUI();
+            renderDatabaseList();
+            closePlayerStatusModal();
+        });
+    }
+
+    if (btnSave) {
+        btnSave.addEventListener('click', () => {
+            const p = players.find(x => x.id === editingStatusPlayerId);
+            if (!p) return;
+
+            const parsedPrio = parseInt(prioInput ? prioInput.value : '0', 10);
+            const newPrio = (!isNaN(parsedPrio) && parsedPrio >= 0) ? parsedPrio : 0;
+            const parsedMatch = parseInt(matchInput ? matchInput.value : '0', 10);
+            const newMatchCount = (!isNaN(parsedMatch) && parsedMatch >= 0) ? parsedMatch : 0;
+
+            p.matchCount = newMatchCount;
+            p.priority = newPrio;
+
+            // 若手動指定的優先值超出/異於預設公式區間，標記 customPriority 以完整保留手動數值
+            const unplayedPrio = getUnplayedPriority();
+            const maxWaitingPrio = getMaxWaitingPriority();
+            if (newMatchCount === 0) {
+                p.customPriority = (newPrio !== unplayedPrio);
+            } else {
+                p.customPriority = (newPrio > maxWaitingPrio);
+            }
+
+            if (editingStatusClearHistory) {
+                p.lastPartnerId = null;
+                p.lastCourtPlayerIds = null;
+            }
+
+            syncPoolWithPlayers();
+            savePlayersAndMatchState();
+            renderMatchUI();
+            renderDatabaseList();
+            closePlayerStatusModal();
+        });
+    }
+})();
 
 // Initial Boot
 const savedActiveView = localStorage.getItem('activeView') || 'viewMatch';

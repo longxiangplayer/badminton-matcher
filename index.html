@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>羽球分隊系統</title>
-    <link rel="stylesheet" href="style.css?v=39">
+    <link rel="stylesheet" href="style.css?v=42">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
@@ -17,7 +17,7 @@
         (function() {
             try {
                 var saved = localStorage.getItem('activeView');
-                if (saved === 'viewSettings' || saved === 'viewPlayers') {
+                if (saved === 'viewSettings' || saved === 'viewPlayers' || saved === 'viewGuide') {
                     document.documentElement.setAttribute('data-initial-view', saved);
                 }
             } catch(e) {}
@@ -33,7 +33,7 @@
             <div class="logo">
                 <i data-lucide="feather"></i>
                 <h1>
-                    羽球分隊系統 <small class="version-tag">v39</small>
+                    羽球分隊系統 <small class="version-tag">v42</small>
                     <button id="btnToggleCourtOrientation" class="btn-orientation-toggle" title="切換場地排列 (橫式 / 直式)">
                         <i data-lucide="rows-2"></i> <span id="orientationLabel">橫式</span>
                     </button>
@@ -334,6 +334,97 @@
                     </div>
                 </div>
             </section>
+
+            <!-- ================= VIEW: USER GUIDE (操作教學) ================= -->
+            <section id="viewGuide" class="view" style="display: none;">
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    <!-- 1. 快速上手 4 步驟 -->
+                    <div class="card guide-card">
+                        <div class="section-header" style="border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; margin-bottom: 0.85rem;">
+                            <h2><i data-lucide="compass" style="color: #10b981;"></i> 快速上手 4 步驟</h2>
+                        </div>
+                        <div class="guide-steps-grid">
+                            <div class="guide-step-item">
+                                <span class="guide-step-num">1</span>
+                                <div>
+                                    <div class="guide-step-title">勾選今日出席人員</div>
+                                    <p class="guide-step-desc">到「<b>球員管理</b>」勾選到場球友（或按「全出席」）。跨日出席會自動清空舊場數並重置優先值；同日取消再勾選時，系統會詢問是否保留已上場數。</p>
+                                </div>
+                            </div>
+                            <div class="guide-step-item">
+                                <span class="guide-step-num">2</span>
+                                <div>
+                                    <div class="guide-step-title">設定場地與排程規則</div>
+                                    <p class="guide-step-desc">到「<b>場地控制</b>」調整上場中場地數、預備場數、優先值點數與配對開關，調整完成後點擊「套用設定」即可生效。</p>
+                                </div>
+                            </div>
+                            <div class="guide-step-item">
+                                <span class="guide-step-num">3</span>
+                                <div>
+                                    <div class="guide-step-title">自動排場或手動微調</div>
+                                    <p class="guide-step-desc">回到「<b>場地安排</b>」，按「全自動安排」或單場「安排」一鍵配對，也支援手動拖曳、單點換位或空位下拉快速選球員。</p>
+                                </div>
+                            </div>
+                            <div class="guide-step-item">
+                                <span class="guide-step-num">4</span>
+                                <div>
+                                    <div class="guide-step-title">下場結算 vs 清空重排</div>
+                                    <p class="guide-step-desc">打完請按右側綠色「<b>下場</b>」（場次 +1、優先值歸 0 休息、候補區自動加點）；若只是想換人重排不算場次，請點左側「<b>清空圖示</b>」。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. 實用操作技巧 -->
+                    <div class="card guide-card">
+                        <div class="section-header" style="border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; margin-bottom: 0.85rem;">
+                            <h2><i data-lucide="sparkles" style="color: #38bdf8;"></i> 實用操作技巧</h2>
+                        </div>
+                        <div class="guide-tips-list">
+                            <div class="guide-tip-box">
+                                <div class="guide-tip-title"><i data-lucide="sliders-horizontal"></i> 隨時修改候補球員狀態</div>
+                                <p>直接點擊候補區球員卡上的 <span class="guide-inline-pill prio">⚡600</span> 或 <span class="guide-inline-pill">0場</span> 標籤（電腦版亦可雙擊卡片），即可彈出狀態編輯視窗，隨時修改<b>優先值、今日場數、清除前搭檔／同場紀錄</b>或設為<b>暫時離場</b>！（球員等級請統一於「球員管理」修改）</p>
+                            </div>
+                            <div class="guide-tip-box">
+                                <div class="guide-tip-title"><i data-lucide="arrow-left-right"></i> 單點換位 & 手機觸控拖曳</div>
+                                <p>點擊球員「姓名／等級」選取後，再點另一位球員即可互換位置，或點擊空位直接移入。手機與平板亦支援按住球員卡片直接拖曳上場或拉回候補區，不會拉動整頁視窗。</p>
+                            </div>
+                            <div class="guide-tip-box">
+                                <div class="guide-tip-title"><i data-lucide="fast-forward"></i> 預備場地自動遞補</div>
+                                <p>「推至空場」下拉選單只會在有空場地時顯示選項。當預備場 1 上場時，若預備場 2、3、4... 已有排人，會自動依序往前遞補至前一個預備場。</p>
+                            </div>
+                            <div class="guide-tip-box">
+                                <div class="guide-tip-title"><i data-lucide="layout-grid"></i> 橫直式切換 & 原地重新整理</div>
+                                <p>頂部版本號後方可隨時切換「橫式 / 直式」場地版面；點擊「重新整理」可直接在原地同步最新雲端資料，頁面與滾動位置完全不跳動。</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. 優先值與配對規則 -->
+                    <div class="card guide-card">
+                        <div class="section-header" style="border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; margin-bottom: 0.85rem;">
+                            <h2><i data-lucide="zap" style="color: #facc15;"></i> 優先值與配對規則</h2>
+                        </div>
+                        <ul class="guide-bullet-list">
+                            <li><b>三項優先值完全自由設定</b>：可在「場地控制」各自設定「未打過者優先值（預設 600）」、「已打過者等待上限（預設 500）」與「每輪等待增加點數（預設 100）」，不再綁定公式。</li>
+                            <li><b>配對優先順序</b>：系統依「等待優先值高 ➔（若開啟）今日場數少 ➔ 等級平衡與避開重複搭檔／同場」自動挑選最佳組合。</li>
+                            <li><b>四大邏輯開關</b>：可獨立開關「避開前搭檔」、「避開前同場者（不論是否為隊友）」、「今日場次平衡」與「下場確認通知（預設關）」。</li>
+                            <li><b>實力平衡條件</b>：支援設定「兩隊總分差上限」與「同場最高／最低等級落差」，設為 0 即代表不限制。</li>
+                        </ul>
+                    </div>
+
+                    <!-- 4. 多人同步與離線保護 -->
+                    <div class="card guide-card">
+                        <div class="section-header" style="border-bottom: 1px solid var(--border); padding-bottom: 0.75rem; margin-bottom: 0.85rem;">
+                            <h2><i data-lucide="cloud" style="color: #c084fc;"></i> 多人即時同步與離線保護</h2>
+                        </div>
+                        <ul class="guide-bullet-list">
+                            <li><b>即時同步</b>：多支手機或平板同時開啟時，場地、預備場、候補名單與規則設定皆會即時雲端同步。</li>
+                            <li><b>離線防覆蓋</b>：若場館網路短暫中斷仍可照常操作；網路恢復時若雲端資料有異動，系統會跳出「本機 vs 雲端」比對視窗讓您選擇保留哪一版，避免誤蓋資料。</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
         </main>
 
         <nav class="bottom-nav">
@@ -349,7 +440,70 @@
                 <i data-lucide="users"></i>
                 <span>球員管理</span>
             </button>
+            <button class="nav-btn" data-target="viewGuide">
+                <i data-lucide="book-open"></i>
+                <span>操作教學</span>
+            </button>
         </nav>
+    </div>
+
+    <!-- Modal: 候補區球員即時狀態編輯視窗 -->
+    <div id="playerStatusModal" class="modal-overlay" style="display: none; z-index: 9500;">
+        <div class="modal-card" style="max-width: 440px; width: 92%;">
+            <div class="modal-header">
+                <h3><i data-lucide="user-cog" style="color: #38bdf8;"></i> <span id="statusModalTitle">修改球員狀態</span></h3>
+                <button class="icon-btn" id="btnCloseStatusModal" style="color: var(--text-muted); background: transparent; border: none; cursor: pointer;"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem;">
+                <!-- 1. 等待優先值 -->
+                <div class="status-field-group">
+                    <label class="status-field-label"><i data-lucide="zap" style="color: #facc15;"></i> 等待優先值（點）</label>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="number" id="statusEditPriority" min="0" max="99999" class="status-number-input">
+                        <div class="status-quick-btns">
+                            <button type="button" id="btnStatusPrioUnplayed" class="status-quick-btn">未打過</button>
+                            <button type="button" id="btnStatusPrioCap" class="status-quick-btn">等待上限</button>
+                            <button type="button" id="btnStatusPrioZero" class="status-quick-btn">歸 0</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 今日已打場數 -->
+                <div class="status-field-group">
+                    <label class="status-field-label"><i data-lucide="hash" style="color: #10b981;"></i> 今日已打場數（場）</label>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="number" id="statusEditMatchCount" min="0" max="999" class="status-number-input">
+                        <div class="status-quick-btns">
+                            <button type="button" id="btnStatusMatchMinus" class="status-quick-btn">-1</button>
+                            <button type="button" id="btnStatusMatchPlus" class="status-quick-btn">+1</button>
+                            <button type="button" id="btnStatusMatchZero" class="status-quick-btn">歸 0</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. 避開紀錄管理 -->
+                <div class="status-field-group">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                        <label class="status-field-label" style="margin: 0;"><i data-lucide="user-x" style="color: #fb923c;"></i> 上一場避開紀錄</label>
+                        <button type="button" id="btnStatusClearHistory" class="status-quick-btn" style="color: #fb923c; border-color: rgba(251,146,60,0.4);">一鍵清除紀錄</button>
+                    </div>
+                    <div id="statusHistoryInfo" class="status-history-box"></div>
+                </div>
+
+                <!-- 4. 底部操作列 -->
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem; padding-top: 0.75rem; border-top: 1px solid var(--border);">
+                    <button type="button" id="btnStatusLeave" class="btn outline-btn" style="color: #f87171; border-color: rgba(248,113,113,0.45); padding: 0.5rem 0.75rem; font-size: 0.82rem;">
+                        <i data-lucide="log-out"></i> 取消出席
+                    </button>
+                    <div style="display: flex; gap: 0.5rem; margin-left: auto;">
+                        <button type="button" id="btnStatusCancel" class="btn outline-btn" style="padding: 0.5rem 0.9rem; font-size: 0.85rem;">取消</button>
+                        <button type="button" id="btnStatusSave" class="btn primary-btn" style="padding: 0.5rem 1.1rem; font-size: 0.85rem;">
+                            <i data-lucide="check"></i> 儲存
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Modal: 推至場地防呆確認視窗 -->
@@ -428,6 +582,6 @@
         </div>
     </div>
     
-    <script src="app.js?v=39"></script>
+    <script src="app.js?v=42"></script>
 </body>
 </html>

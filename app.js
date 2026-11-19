@@ -1,3 +1,4 @@
+// Badminton Matcher v1.0.0
 // Initialize Icons
 lucide.createIcons();
 

@@ -1,4 +1,4 @@
-// Badminton Matcher v1.0.0
+// Badminton Matcher v2.0.0
 // Initialize Icons
 lucide.createIcons();
 
@@ -19,6 +19,7 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+const auth = firebase.auth();
 
 // 啟用 Firestore 本地離線快取（離線可讀可寫，連網時自動同步）
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -29,19 +30,87 @@ db.enablePersistence({ synchronizeTabs: true }).catch(err => {
     }
 });
 
+// --- MULTI-USER & MULTI-GROUP STATE ---
+let currentUser = null;
+let userGroups = [];
+let currentGroupId = null;
+let currentGroupMeta = null;
+let hasLoadedCurrentGroup = false;
+let unsubscribeGroupsList = null;
+let unsubscribeGroupDoc = null;
+
+function getDefaultMatchState() {
+    return {
+        courts: [
+            { name: '預備場 1', isSingles: false, teamA: [null, null], teamB: [null, null] }
+        ],
+        activeCourts: [
+            { name: '場地 1', isSingles: false, teamA: [null, null], teamB: [null, null] },
+            { name: '場地 2', isSingles: false, teamA: [null, null], teamB: [null, null] },
+            { name: '場地 3', isSingles: false, teamA: [null, null], teamB: [null, null] }
+        ],
+        pool: []
+    };
+}
+
+function getDefaultMatchConfig() {
+    return {
+        enablePriority: true,
+        priorityStep: 100,
+        unplayedPriority: 600,
+        maxWaitingPriority: 500,
+        confirmFinishMatch: false,
+        avoidRecentPartner: true,
+        avoidSameCourt: true,
+        balanceMatchCount: false,
+        maxTeamDiff: 2,
+        maxPlayerGap: 4
+    };
+}
+
+function getCurrentGroupDocRef() {
+    return currentGroupId ? db.collection('groups').doc(currentGroupId) : null;
+}
+
+function getOfflineKey(suffix) {
+    if (currentUser && currentGroupId) {
+        return `${suffix}_${currentUser.uid}_${currentGroupId}`;
+    }
+    return suffix;
+}
+
+function getUserDisplayName(user) {
+    if (!user) return '使用者';
+    if (user.displayName && user.displayName.trim()) return user.displayName.trim();
+    if (user.email) return user.email.split('@')[0];
+    return '使用者';
+}
+
+function generateShareCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return `BM-${code}`;
+}
+
+function updateUrlGroupParam(groupId) {
+    if (!groupId) return;
+    try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('group', groupId);
+        window.history.replaceState({}, '', url.toString());
+        sessionStorage.setItem('activeGroupId', groupId);
+        if (currentUser) {
+            localStorage.setItem('lastGroupId_' + currentUser.uid, groupId);
+        }
+    } catch (e) {}
+}
+
 // --- STATE ---
 let players = [];
-let matchState = {
-    courts: [
-        { name: '預備場 1', isSingles: false, teamA: [null, null], teamB: [null, null] }
-    ],
-    activeCourts: [
-        { name: '場地 1', isSingles: false, teamA: [null, null], teamB: [null, null] },
-        { name: '場地 2', isSingles: false, teamA: [null, null], teamB: [null, null] },
-        { name: '場地 3', isSingles: false, teamA: [null, null], teamB: [null, null] }
-    ],
-    pool: []
-};
+let matchState = getDefaultMatchState();
 
 // Variables for Drag & Click
 let draggedPlayerId = null;
@@ -324,7 +393,11 @@ function applySettingsFromUI() {
     updateCourtsArray(matchState.courts, cur.preCourtCount, matchState.pool, '預備場 ');
 
     saveCurrentSettingsSnapshot();
-    db.collection('badminton').doc('state').set({ matchConfig, matchState }, { merge: true });
+    const groupRef = getCurrentGroupDocRef();
+    if (groupRef && hasLoadedCurrentGroup) {
+        recordLocalModification();
+        groupRef.set({ matchConfig, matchState, lastModified: Date.now() }, { merge: true });
+    }
     renderMatchUI(true);
 }
 
@@ -402,18 +475,20 @@ if (btnToggleCourtOrientation) {
 }
 updateOrientationUI();
 
-// --- SCROLL & VIEW RESTORATION (重新整理不跳畫面) ---
+// --- SCROLL & VIEW RESTORATION (重新整理不跳畫面，支援多開分頁隔離) ---
 function saveViewScrollPosition(viewId) {
     if (!viewId) return;
     try {
-        sessionStorage.setItem('scrollPos_' + viewId, String(window.scrollY));
+        const groupPrefix = currentGroupId || 'default';
+        sessionStorage.setItem(`scrollPos_${groupPrefix}_${viewId}`, String(window.scrollY));
     } catch(e) {}
 }
 
 function restoreViewScrollPosition(viewId) {
     if (!viewId) return;
     try {
-        const saved = sessionStorage.getItem('scrollPos_' + viewId);
+        const groupPrefix = currentGroupId || 'default';
+        const saved = sessionStorage.getItem(`scrollPos_${groupPrefix}_${viewId}`);
         if (saved !== null) {
             const top = parseInt(saved, 10);
             if (!isNaN(top)) {
@@ -530,6 +605,9 @@ navBtns.forEach(btn => {
 const btnRefreshSync = document.getElementById('btnRefreshSync');
 if (btnRefreshSync) {
     btnRefreshSync.addEventListener('click', async () => {
+        const groupRef = getCurrentGroupDocRef();
+        if (!groupRef) return;
+
         const icon = btnRefreshSync.querySelector('i');
         const label = document.getElementById('refreshLabel');
         const currentActiveView = document.querySelector('.view.active');
@@ -540,16 +618,13 @@ if (btnRefreshSync) {
         if (label) label.textContent = '同步中...';
 
         try {
-            const doc = await db.collection('badminton').doc('state').get();
+            const doc = await groupRef.get();
             if (doc.exists) {
                 const data = doc.data();
-                if (data.players) players = data.players;
-                if (data.matchState) matchState = data.matchState;
-                if (data.matchConfig) {
-                    matchConfig = Object.assign({}, matchConfig, data.matchConfig);
-                }
+                applyServerDataToLocalState(doc.id, data);
                 saveCurrentSettingsSnapshot();
                 setUIFromConfig(savedSettingsSnapshot);
+                renderTopAccountBar();
                 renderDatabaseList();
                 syncPoolWithPlayers();
                 renderMatchUI();
@@ -584,10 +659,10 @@ playerLevelInput.addEventListener('input', (e) => {
 
 function recordLocalModification() {
     const now = Date.now();
-    localStorage.setItem('localLastModified', now.toString());
-    if (!navigator.onLine) {
-        localStorage.setItem('hasOfflineEdits', 'true');
-        localStorage.setItem('offlineSnapshot', JSON.stringify({
+    localStorage.setItem(getOfflineKey('localLastModified'), now.toString());
+    if (!navigator.onLine && currentUser && currentGroupId) {
+        localStorage.setItem(getOfflineKey('hasOfflineEdits'), 'true');
+        localStorage.setItem(getOfflineKey('offlineSnapshot'), JSON.stringify({
             players,
             matchState,
             matchConfig,
@@ -643,85 +718,163 @@ function showConflictModal(localSnap, serverData) {
 
     const btnKeepLocal = document.getElementById('btnKeepLocal');
     const btnKeepServer = document.getElementById('btnKeepServer');
+    const editsKey = getOfflineKey('hasOfflineEdits');
+    const snapKey = getOfflineKey('offlineSnapshot');
 
     btnKeepLocal.onclick = () => {
+        const groupRef = getCurrentGroupDocRef();
         const now = Date.now();
-        db.collection('badminton').doc('state').set({
-            players,
-            matchState,
-            matchConfig,
-            lastModified: now
-        });
-        localStorage.removeItem('hasOfflineEdits');
-        localStorage.removeItem('offlineSnapshot');
+        if (groupRef) {
+            groupRef.set({
+                players,
+                matchState,
+                matchConfig,
+                lastModified: now
+            }, { merge: true });
+        }
+        localStorage.removeItem(editsKey);
+        localStorage.removeItem(snapKey);
         modal.style.display = 'none';
         alert('已成功以本機離線紀錄覆蓋雲端伺服器！');
     };
 
     btnKeepServer.onclick = () => {
-        if (serverData.players) players = serverData.players;
-        if (serverData.matchState) {
-            matchState = serverData.matchState;
-            matchState.courts = matchState.courts || [];
-            matchState.activeCourts = matchState.activeCourts || [];
-        }
-        if (serverData.matchConfig) {
-            matchConfig = Object.assign({}, matchConfig, serverData.matchConfig);
-        }
+        applyServerDataToLocalState(currentGroupId, serverData);
         saveCurrentSettingsSnapshot();
         setUIFromConfig(savedSettingsSnapshot);
+        renderTopAccountBar();
         renderDatabaseList();
         syncPoolWithPlayers();
         renderMatchUI();
 
-        localStorage.removeItem('hasOfflineEdits');
-        localStorage.removeItem('offlineSnapshot');
+        localStorage.removeItem(editsKey);
+        localStorage.removeItem(snapKey);
         modal.style.display = 'none';
         alert('已成功載入雲端伺服器紀錄！');
     };
 }
 
-function savePlayers() {
-    if (!players || players.length === 0) {
-        console.warn("Blocked saving empty players list to prevent accidental overwrite");
-        return;
+function applyServerDataToLocalState(groupId, data) {
+    if (!data) return;
+    currentGroupMeta = {
+        id: groupId,
+        name: data.name || '未命名群組',
+        ownerUid: data.ownerUid || '',
+        ownerName: data.ownerName || '建立者',
+        memberUids: Array.isArray(data.memberUids) ? data.memberUids : [],
+        memberNames: data.memberNames || {},
+        shareCode: data.shareCode || '',
+        shareEnabled: data.shareEnabled !== undefined ? Boolean(data.shareEnabled) : false
+    };
+
+    players = Array.isArray(data.players) ? data.players : [];
+
+    if (data.matchState) {
+        matchState = data.matchState;
+        matchState.courts = matchState.courts || [];
+        matchState.activeCourts = matchState.activeCourts || [];
+        matchState.pool = matchState.pool || [];
+        if (matchState.activeCourts.length === 0) {
+            matchState.activeCourts = getDefaultMatchState().activeCourts;
+        }
+    } else {
+        matchState = getDefaultMatchState();
     }
+
+    if (data.matchConfig) {
+        matchConfig = {
+            enablePriority: data.matchConfig.enablePriority !== undefined ? data.matchConfig.enablePriority : true,
+            priorityStep: data.matchConfig.priorityStep !== undefined ? data.matchConfig.priorityStep : 100,
+            unplayedPriority: data.matchConfig.unplayedPriority !== undefined ? data.matchConfig.unplayedPriority : (data.matchConfig.unplayedCourtOffset !== undefined ? ((data.matchConfig.activeCourtsCount || 3) + Number(data.matchConfig.unplayedCourtOffset)) * (data.matchConfig.priorityStep || 100) : 600),
+            maxWaitingPriority: data.matchConfig.maxWaitingPriority !== undefined ? data.matchConfig.maxWaitingPriority : (data.matchConfig.playedCapCourtOffset !== undefined ? ((data.matchConfig.activeCourtsCount || 3) + Number(data.matchConfig.playedCapCourtOffset)) * (data.matchConfig.priorityStep || 100) : 500),
+            confirmFinishMatch: data.matchConfig.confirmFinishMatch !== undefined ? data.matchConfig.confirmFinishMatch : false,
+            avoidRecentPartner: data.matchConfig.avoidRecentPartner !== undefined ? data.matchConfig.avoidRecentPartner : true,
+            avoidSameCourt: data.matchConfig.avoidSameCourt !== undefined ? data.matchConfig.avoidSameCourt : true,
+            balanceMatchCount: data.matchConfig.balanceMatchCount !== undefined ? data.matchConfig.balanceMatchCount : false,
+            maxTeamDiff: data.matchConfig.maxTeamDiff !== undefined ? data.matchConfig.maxTeamDiff : 2,
+            maxPlayerGap: data.matchConfig.maxPlayerGap !== undefined ? data.matchConfig.maxPlayerGap : 4
+        };
+    } else {
+        matchConfig = getDefaultMatchConfig();
+    }
+}
+
+function savePlayers() {
+    const groupRef = getCurrentGroupDocRef();
+    if (!groupRef || !hasLoadedCurrentGroup) return;
     const now = Date.now();
     recordLocalModification();
-    db.collection('badminton').doc('state').set({ players, lastModified: now }, { merge: true });
+    groupRef.set({ players, lastModified: now }, { merge: true });
 }
 
 function saveMatchState() {
+    const groupRef = getCurrentGroupDocRef();
+    if (!groupRef || !hasLoadedCurrentGroup) return;
     const now = Date.now();
     recordLocalModification();
-    db.collection('badminton').doc('state').set({ matchState, lastModified: now }, { merge: true });
+    groupRef.set({ matchState, lastModified: now }, { merge: true });
 }
 
 function savePlayersAndMatchState() {
-    if (!players || players.length === 0) {
-        console.warn("Blocked saving empty players list to prevent accidental overwrite");
-        return;
-    }
+    const groupRef = getCurrentGroupDocRef();
+    if (!groupRef || !hasLoadedCurrentGroup) return;
     const now = Date.now();
     recordLocalModification();
-    db.collection('badminton').doc('state').set({ players, matchState, lastModified: now }, { merge: true });
+    groupRef.set({ players, matchState, lastModified: now }, { merge: true });
 }
 
-// --- FIRESTORE REALTIME SYNC ---
-db.collection('badminton').doc('state').onSnapshot(doc => {
-    if (doc.exists) {
+// --- FIRESTORE REALTIME SYNC (PER GROUP) ---
+function subscribeToGroupDoc(groupId) {
+    if (!groupId) return;
+    if (unsubscribeGroupDoc) {
+        unsubscribeGroupDoc();
+        unsubscribeGroupDoc = null;
+    }
+
+    hasLoadedCurrentGroup = false;
+    currentGroupId = groupId;
+    draggedPlayerId = null;
+    clickedPlayerId = null;
+    closePlayerStatusModal();
+    updateUrlGroupParam(groupId);
+    renderTopAccountBar();
+    const mgrModalInit = document.getElementById('groupManagerModal');
+    if (mgrModalInit && mgrModalInit.style.display === 'flex') {
+        renderGroupManagerList();
+    }
+
+    unsubscribeGroupDoc = db.collection('groups').doc(groupId).onSnapshot(doc => {
+        if (currentGroupId !== groupId) return;
+
+        if (!doc.exists) {
+            hasLoadedCurrentGroup = false;
+            const remaining = userGroups.filter(g => g.id !== groupId);
+            if (remaining.length > 0) {
+                alert('目前群組已被建立者刪除或您已被移出，將切換至其他可用群組。');
+                subscribeToGroupDoc(remaining[0].id);
+            } else if (currentUser) {
+                alert('目前群組已不存在，將為您建立一個新群組。');
+                createGroup('我的羽球群組');
+            }
+            return;
+        }
+
         const data = doc.data();
         const isFromCache = doc.metadata.fromCache;
 
         // 若有離線修改，且本次收到的是來自雲端的真實更新，檢查衝突
-        if (!isFromCache && localStorage.getItem('hasOfflineEdits') === 'true') {
-            const snapStr = localStorage.getItem('offlineSnapshot');
+        const editsKey = getOfflineKey('hasOfflineEdits');
+        const snapKey = getOfflineKey('offlineSnapshot');
+        if (!isFromCache && localStorage.getItem(editsKey) === 'true') {
+            const snapStr = localStorage.getItem(snapKey);
             if (snapStr) {
                 try {
                     const localSnap = JSON.parse(snapStr);
                     if (data.lastModified !== localSnap.lastModified) {
+                        applyServerDataToLocalState(doc.id, data);
+                        hasLoadedCurrentGroup = true;
                         showConflictModal(localSnap, data);
-                        return; // 暫停自動覆蓋，等待使用者確認選擇
+                        return;
                     }
                 } catch (e) {
                     console.error('Failed to parse offline snapshot', e);
@@ -729,36 +882,17 @@ db.collection('badminton').doc('state').onSnapshot(doc => {
             }
         }
 
-        if (data.players) players = data.players;
-        if (data.matchState) {
-            matchState = data.matchState;
-            matchState.courts = matchState.courts || [];
-            matchState.activeCourts = matchState.activeCourts || [];
-            if (matchState.activeCourts.length === 0) {
-                matchState.activeCourts = [
-                    { name: '場地 1', isSingles: false, teamA: [null, null], teamB: [null, null] },
-                    { name: '場地 2', isSingles: false, teamA: [null, null], teamB: [null, null] },
-                    { name: '場地 3', isSingles: false, teamA: [null, null], teamB: [null, null] }
-                ];
-            }
-        }
-        if (data.matchConfig) {
-            matchConfig = {
-                enablePriority: data.matchConfig.enablePriority !== undefined ? data.matchConfig.enablePriority : true,
-                priorityStep: data.matchConfig.priorityStep !== undefined ? data.matchConfig.priorityStep : 100,
-                unplayedPriority: data.matchConfig.unplayedPriority !== undefined ? data.matchConfig.unplayedPriority : (data.matchConfig.unplayedCourtOffset !== undefined ? ((data.matchConfig.activeCourtsCount || 3) + Number(data.matchConfig.unplayedCourtOffset)) * (data.matchConfig.priorityStep || 100) : 600),
-                maxWaitingPriority: data.matchConfig.maxWaitingPriority !== undefined ? data.matchConfig.maxWaitingPriority : (data.matchConfig.playedCapCourtOffset !== undefined ? ((data.matchConfig.activeCourtsCount || 3) + Number(data.matchConfig.playedCapCourtOffset)) * (data.matchConfig.priorityStep || 100) : 500),
-                confirmFinishMatch: data.matchConfig.confirmFinishMatch !== undefined ? data.matchConfig.confirmFinishMatch : false,
-                avoidRecentPartner: data.matchConfig.avoidRecentPartner !== undefined ? data.matchConfig.avoidRecentPartner : true,
-                avoidSameCourt: data.matchConfig.avoidSameCourt !== undefined ? data.matchConfig.avoidSameCourt : true,
-                balanceMatchCount: data.matchConfig.balanceMatchCount !== undefined ? data.matchConfig.balanceMatchCount : false,
-                maxTeamDiff: data.matchConfig.maxTeamDiff !== undefined ? data.matchConfig.maxTeamDiff : 2,
-                maxPlayerGap: data.matchConfig.maxPlayerGap !== undefined ? data.matchConfig.maxPlayerGap : 4
-            };
-        }
+        applyServerDataToLocalState(doc.id, data);
+        hasLoadedCurrentGroup = true;
 
         saveCurrentSettingsSnapshot();
         setUIFromConfig(savedSettingsSnapshot);
+        renderTopAccountBar();
+
+        const shareModal = document.getElementById('groupShareModal');
+        if (shareModal && shareModal.style.display === 'flex' && sharingModalGroupId === groupId) {
+            renderShareModalContent(groupId);
+        }
 
         if (!draggedPlayerId && !clickedPlayerId && !isPlayerEditMode) {
             const currentScrollY = window.scrollY;
@@ -772,8 +906,17 @@ db.collection('badminton').doc('state').onSnapshot(doc => {
                 window.scrollTo({ top: currentScrollY, behavior: 'instant' });
             }
         }
-    }
-});
+    }, err => {
+        console.error('Group snapshot error:', err);
+        if (err && err.code === 'permission-denied') {
+            hasLoadedCurrentGroup = false;
+            const fallback = userGroups.find(g => g.id !== groupId);
+            if (fallback) {
+                subscribeToGroupDoc(fallback.id);
+            }
+        }
+    });
+}
 
 // Add Player Form
 addPlayerForm.addEventListener('submit', (e) => {
@@ -825,22 +968,14 @@ window.updatePlayerLevel = (id, newLevel) => {
     }
 };
 
-function resetPlayerOnAttend(p, keepTodayMatches = true) {
+function resetPlayerOnAttend(p) {
     if (!p) return;
-    const today = new Date().toLocaleDateString('zh-TW');
-    const isNewDay = (p.lastDate !== today);
-
-    // 若非今日最後出席紀錄（跨日或首次出席），或同日重新出席但選擇不保留場數，一併清除場數與避開紀錄
-    if (isNewDay || keepTodayMatches === false) {
-        p.matchCount = 0;
-        p.lastPartnerId = null;
-        p.lastCourtPlayerIds = null;
-    }
-
-    // 球員出席時一律將優先值 Reset 一次（不帶著上次的記憶）
+    // 不論跨日或同日重新勾選出席，一律重置為全新未上過場狀態（不帶著上次的記憶）
+    p.matchCount = 0;
+    p.priority = getUnplayedPriority();
     p.customPriority = false;
-    const isUnplayed = !p.matchCount || p.matchCount === 0;
-    p.priority = isUnplayed ? getUnplayedPriority() : getMaxWaitingPriority();
+    p.lastPartnerId = null;
+    p.lastCourtPlayerIds = null;
 }
 
 window.toggleIsPlaying = (id, checked) => {
@@ -848,19 +983,9 @@ window.toggleIsPlaying = (id, checked) => {
     if (p) {
         const wasPlaying = Boolean(p.isPlaying);
         p.isPlaying = checked;
-        // 球員勾選出席時，先將優先值 Reset 一次，不帶著上次的記憶
+        // 球員由未出席變為出席時，重置為未上過場狀態並清乾淨避開紀錄
         if (checked && !wasPlaying) {
-            const today = new Date().toLocaleDateString('zh-TW');
-            let keepTodayMatches = true;
-            // 同日取消出席後再重新勾選出席：若已有上場數，先確認是否保留
-            if (p.lastDate === today && (p.matchCount || 0) > 0) {
-                keepTodayMatches = confirm(
-                    `【${p.name}】今日已有 ${p.matchCount} 場紀錄，是否保留已上場數？\n\n` +
-                    `・按【確定】：保留 ${p.matchCount} 場，優先值重置為等待上限（${getMaxWaitingPriority()} 點）\n` +
-                    `・按【取消】：一併清除場數歸 0 與避開紀錄，優先值重置為未打過值（${getUnplayedPriority()} 點）`
-                );
-            }
-            resetPlayerOnAttend(p, keepTodayMatches);
+            resetPlayerOnAttend(p);
         }
     }
     syncPoolWithPlayers();
@@ -943,20 +1068,11 @@ if (btnSelectAllAttendance) {
     btnSelectAllAttendance.addEventListener('click', () => {
         if (confirm('確定要將所有人設為出席嗎？')) {
             const today = new Date().toLocaleDateString('zh-TW');
-            const sameDayReturning = players.filter(p => !p.isPlaying && p.lastDate === today && (p.matchCount || 0) > 0);
-            let keepTodayMatches = true;
-            if (sameDayReturning.length > 0) {
-                keepTodayMatches = confirm(
-                    `本次新勾選的球員中，有 ${sameDayReturning.length} 位今日已有上場紀錄，是否保留他們的已上場數？\n\n` +
-                    `・按【確定】：保留今日場數，優先值重置為等待上限（${getMaxWaitingPriority()} 點）\n` +
-                    `・按【取消】：一併清除今日場數與避開紀錄，優先值重置為未打過值（${getUnplayedPriority()} 點）`
-                );
-            }
             players.forEach(p => {
                 const wasPlaying = Boolean(p.isPlaying);
                 p.isPlaying = true;
                 if (!wasPlaying || p.lastDate !== today) {
-                    resetPlayerOnAttend(p, keepTodayMatches);
+                    resetPlayerOnAttend(p);
                 }
             });
             syncPoolWithPlayers();
@@ -1904,6 +2020,195 @@ function pickOneMatch(pool, neededSize, maxTeamDiff, maxPlayerGap, avoidRecentPa
     return picked.match;
 }
 
+function getCourtMissingSlots(court) {
+    if (!court) return [];
+    const missing = [];
+    const checkIndices = court.isSingles ? [0] : [0, 1];
+    checkIndices.forEach(idx => {
+        if (!court.teamA || !court.teamA[idx]) missing.push({ team: 'teamA', idx });
+    });
+    checkIndices.forEach(idx => {
+        if (!court.teamB || !court.teamB[idx]) missing.push({ team: 'teamB', idx });
+    });
+    return missing;
+}
+
+function fillPartialCourt(court, pool, maxTeamDiff, maxPlayerGap, avoidRecentPartner, avoidSameCourt) {
+    const missingSlots = getCourtMissingSlots(court);
+    const missingCount = missingSlots.length;
+    if (missingCount === 0 || !pool || pool.length < missingCount) return pool;
+
+    let sortedPool = [...pool];
+    for (let i = sortedPool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [sortedPool[i], sortedPool[j]] = [sortedPool[j], sortedPool[i]];
+    }
+    sortedPool.sort((a, b) => {
+        if (matchConfig.enablePriority) {
+            const pA = getPlayerPriority(a);
+            const pB = getPlayerPriority(b);
+            if (pB !== pA) return pB - pA;
+        }
+        if (matchConfig.balanceMatchCount) {
+            const mA = a.matchCount || 0;
+            const mB = b.matchCount || 0;
+            if (mA !== mB) return mA - mB;
+        }
+        return 0;
+    });
+
+    const limit = missingCount === 1 ? sortedPool.length : (missingCount === 2 ? 20 : 14);
+    const candPool = sortedPool.slice(0, limit);
+
+    function evaluatePartial(chosenPlayers, currMaxDiff, currMaxGap, currAvoidPartner, currAvoidSame) {
+        const simA = court.isSingles ? [court.teamA[0] || null] : [court.teamA[0] || null, court.teamA[1] || null];
+        const simB = court.isSingles ? [court.teamB[0] || null] : [court.teamB[0] || null, court.teamB[1] || null];
+
+        missingSlots.forEach((slot, idx) => {
+            if (slot.team === 'teamA') simA[slot.idx] = chosenPlayers[idx];
+            else simB[slot.idx] = chosenPlayers[idx];
+        });
+
+        const allPlayers = [...simA, ...simB].filter(Boolean);
+        const lvls = allPlayers.map(p => p.level);
+        const gap = Math.max(...lvls) - Math.min(...lvls);
+        if (currMaxGap > 0 && gap > currMaxGap) return null;
+
+        const sumA = simA.reduce((acc, p) => acc + (p ? p.level : 0), 0);
+        const sumB = simB.reduce((acc, p) => acc + (p ? p.level : 0), 0);
+        const diff = Math.abs(sumA - sumB);
+        if (currMaxDiff > 0 && diff > currMaxDiff) return null;
+
+        let sameCourtRepeats = 0;
+        for (let m = 0; m < allPlayers.length; m++) {
+            for (let n = m + 1; n < allPlayers.length; n++) {
+                const hitMN = allPlayers[m].lastCourtPlayerIds && allPlayers[m].lastCourtPlayerIds.includes(allPlayers[n].id);
+                const hitNM = allPlayers[n].lastCourtPlayerIds && allPlayers[n].lastCourtPlayerIds.includes(allPlayers[m].id);
+                if (hitMN || hitNM) sameCourtRepeats++;
+            }
+        }
+        if (currAvoidSame && sameCourtRepeats > 0) return null;
+
+        let repA = false;
+        let repB = false;
+        if (!court.isSingles) {
+            if (simA[0] && simA[1] && simA[0].lastPartnerId && simA[0].lastPartnerId === simA[1].id) repA = true;
+            if (simB[0] && simB[1] && simB[0].lastPartnerId && simB[0].lastPartnerId === simB[1].id) repB = true;
+        }
+        const isRepeat = Boolean(repA || repB);
+        if (currAvoidPartner && isRepeat) return null;
+
+        const totalPriority = chosenPlayers.reduce((acc, p) => acc + getPlayerPriority(p), 0);
+        const totalMatches = chosenPlayers.reduce((acc, p) => acc + (p.matchCount || 0), 0);
+
+        return {
+            chosenPlayers,
+            diff,
+            isRepeat,
+            sameCourtRepeats,
+            totalPriority,
+            totalMatches
+        };
+    }
+
+    function searchAssignments(currMaxDiff, currMaxGap, currAvoidPartner, currAvoidSame) {
+        const results = [];
+        const n = candPool.length;
+        if (missingCount === 1) {
+            for (let i = 0; i < n; i++) {
+                const res = evaluatePartial([candPool[i]], currMaxDiff, currMaxGap, currAvoidPartner, currAvoidSame);
+                if (res) { res.avgIndex = i; results.push(res); }
+            }
+        } else if (missingCount === 2) {
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    if (i === j) continue;
+                    const res = evaluatePartial([candPool[i], candPool[j]], currMaxDiff, currMaxGap, currAvoidPartner, currAvoidSame);
+                    if (res) { res.avgIndex = i + j; results.push(res); }
+                }
+            }
+        } else if (missingCount === 3) {
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    if (i === j) continue;
+                    for (let k = 0; k < n; k++) {
+                        if (k === i || k === j) continue;
+                        const res = evaluatePartial([candPool[i], candPool[j], candPool[k]], currMaxDiff, currMaxGap, currAvoidPartner, currAvoidSame);
+                        if (res) { res.avgIndex = i + j + k; results.push(res); }
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    let candidates = searchAssignments(maxTeamDiff, maxPlayerGap, avoidRecentPartner, avoidSameCourt);
+    if (candidates.length === 0 && avoidSameCourt) {
+        candidates = searchAssignments(maxTeamDiff, maxPlayerGap, avoidRecentPartner, false);
+    }
+    if (candidates.length === 0 && avoidRecentPartner) {
+        candidates = searchAssignments(maxTeamDiff, maxPlayerGap, false, false);
+    }
+    let relaxGap = maxPlayerGap;
+    let relaxDiff = maxTeamDiff;
+    while (candidates.length === 0 && ((relaxGap > 0 && relaxGap < 10) || (relaxDiff > 0 && relaxDiff < 10))) {
+        if (relaxGap > 0) relaxGap += 1;
+        if (relaxDiff > 0) relaxDiff += 1;
+        candidates = searchAssignments(relaxDiff, relaxGap, false, false);
+    }
+
+    let pickedChosen = null;
+    if (candidates.length === 0) {
+        pickedChosen = candPool.slice(0, missingCount);
+    } else {
+        if (avoidSameCourt) {
+            const nonSame = candidates.filter(c => (c.sameCourtRepeats || 0) === 0);
+            if (nonSame.length > 0) candidates = nonSame;
+        }
+        if (avoidRecentPartner) {
+            const nonRepeat = candidates.filter(c => !c.isRepeat);
+            if (nonRepeat.length > 0) candidates = nonRepeat;
+        }
+        candidates.sort((a, b) => {
+            if (matchConfig.enablePriority && b.totalPriority !== a.totalPriority) {
+                return b.totalPriority - a.totalPriority;
+            }
+            if (matchConfig.balanceMatchCount && a.totalMatches !== b.totalMatches) {
+                return a.totalMatches - b.totalMatches;
+            }
+            if (a.sameCourtRepeats !== b.sameCourtRepeats) {
+                return a.sameCourtRepeats - b.sameCourtRepeats;
+            }
+            if (a.isRepeat !== b.isRepeat) {
+                return a.isRepeat ? 1 : -1;
+            }
+            if (a.diff !== b.diff) {
+                return a.diff - b.diff;
+            }
+            return a.avgIndex - b.avgIndex;
+        });
+
+        const best = candidates[0];
+        const topCands = candidates.filter(c =>
+            (!matchConfig.enablePriority || c.totalPriority === best.totalPriority) &&
+            (!matchConfig.balanceMatchCount || c.totalMatches === best.totalMatches) &&
+            c.sameCourtRepeats === best.sameCourtRepeats &&
+            c.isRepeat === best.isRepeat &&
+            c.diff === best.diff
+        );
+        pickedChosen = topCands[Math.floor(Math.random() * topCands.length)].chosenPlayers;
+    }
+
+    const chosenIds = new Set();
+    missingSlots.forEach((slot, idx) => {
+        const player = pickedChosen[idx] || null;
+        if (!court[slot.team]) court[slot.team] = [null, null];
+        court[slot.team][slot.idx] = player;
+        if (player) chosenIds.add(player.id);
+    });
+    return pool.filter(p => !chosenIds.has(p.id));
+}
+
 function fillCourtsIntelligently(courts, pool) {
     const maxTeamDiff = (matchConfig && matchConfig.maxTeamDiff !== undefined) ? matchConfig.maxTeamDiff : 2;
     const maxPlayerGap = (matchConfig && matchConfig.maxPlayerGap !== undefined) ? matchConfig.maxPlayerGap : 4;
@@ -1912,30 +2217,37 @@ function fillCourtsIntelligently(courts, pool) {
 
     for (let c of courts) {
         const needed = c.isSingles ? 2 : 4;
-        if (pool.length < needed) break;
+        const missingSlots = getCourtMissingSlots(c);
+        if (missingSlots.length === 0) continue;
+        if (pool.length < missingSlots.length) continue;
 
-        const resultMatch = pickOneMatch(pool, needed, maxTeamDiff, maxPlayerGap, avoidPartner, avoidSameCourt);
-        if (resultMatch) {
-            if (needed === 2) {
-                c.teamA[0] = resultMatch.teamA[0];
-                c.teamA[1] = null;
-                c.teamB[0] = resultMatch.teamB[0];
-                c.teamB[1] = null;
-                const chosenIds = new Set([resultMatch.teamA[0].id, resultMatch.teamB[0].id]);
-                pool = pool.filter(p => !chosenIds.has(p.id));
-            } else {
-                c.teamA[0] = resultMatch.teamA[0];
-                c.teamA[1] = resultMatch.teamA[1];
-                c.teamB[0] = resultMatch.teamB[0];
-                c.teamB[1] = resultMatch.teamB[1];
-                const chosenIds = new Set([
-                    resultMatch.teamA[0].id,
-                    resultMatch.teamA[1].id,
-                    resultMatch.teamB[0].id,
-                    resultMatch.teamB[1].id
-                ]);
-                pool = pool.filter(p => !chosenIds.has(p.id));
+        if (missingSlots.length === needed) {
+            const resultMatch = pickOneMatch(pool, needed, maxTeamDiff, maxPlayerGap, avoidPartner, avoidSameCourt);
+            if (resultMatch) {
+                if (needed === 2) {
+                    c.teamA[0] = resultMatch.teamA[0];
+                    c.teamA[1] = null;
+                    c.teamB[0] = resultMatch.teamB[0];
+                    c.teamB[1] = null;
+                    const chosenIds = new Set([resultMatch.teamA[0].id, resultMatch.teamB[0].id]);
+                    pool = pool.filter(p => !chosenIds.has(p.id));
+                } else {
+                    c.teamA[0] = resultMatch.teamA[0];
+                    c.teamA[1] = resultMatch.teamA[1];
+                    c.teamB[0] = resultMatch.teamB[0];
+                    c.teamB[1] = resultMatch.teamB[1];
+                    const chosenIds = new Set([
+                        resultMatch.teamA[0].id,
+                        resultMatch.teamA[1].id,
+                        resultMatch.teamB[0].id,
+                        resultMatch.teamB[1].id
+                    ]);
+                    pool = pool.filter(p => !chosenIds.has(p.id));
+                }
             }
+        } else {
+            // 已有部分手動排人：保留既有隊員位置，自動補齊剩餘空位
+            pool = fillPartialCourt(c, pool, maxTeamDiff, maxPlayerGap, avoidPartner, avoidSameCourt);
         }
     }
     return pool;
@@ -1949,22 +2261,20 @@ function handleGenerate() {
 
     let availablePool = [...matchState.pool];
 
-    const emptyCourts = targetCourtsArray.filter(c => {
-        return c.teamA.every(p => p === null) && c.teamB.every(p => p === null);
-    });
+    const unfilledCourts = targetCourtsArray.filter(c => getCourtMissingSlots(c).length > 0);
 
-    if (emptyCourts.length === 0 && availablePool.length > 0) {
-        alert('沒有空場地可供自動安排，請先「清空」或移出球員。');
+    if (unfilledCourts.length === 0 && availablePool.length > 0) {
+        alert('所有場地皆已排滿球員，請先「清空」或移出球員。');
         return;
     }
 
-    availablePool = fillCourtsIntelligently(emptyCourts, availablePool);
+    // 優先將已部分排人的場地補齊，再排全空場地
+    unfilledCourts.sort((a, b) => getCourtMissingSlots(a).length - getCourtMissingSlots(b).length);
+    availablePool = fillCourtsIntelligently(unfilledCourts, availablePool);
 
-    const remainingEmpty = emptyCourts.filter(c => {
-        return c.teamA.every(p => p === null) && c.teamB.every(p => p === null);
-    }).length;
-    if (remainingEmpty > 0) {
-        alert('安排完畢！但候補人數不足，還有 ' + remainingEmpty + ' 個場地為空。');
+    const remainingUnfilled = unfilledCourts.filter(c => getCourtMissingSlots(c).length > 0).length;
+    if (remainingUnfilled > 0) {
+        alert('安排完畢！但候補人數不足，還有 ' + remainingUnfilled + ' 個場地未排滿。');
     }
 
     matchState.pool = availablePool;
@@ -1976,16 +2286,15 @@ window.autoFillCourt = (courtIndex) => {
     const court = matchState.courts[courtIndex];
     if (!court) return;
 
-    const isEmpty = court.teamA.every(p => p === null) && court.teamB.every(p => p === null);
-    if (!isEmpty) {
-        alert('此場地已經有球員了，請先將他們移至候補區才能重新安排。');
+    const missingSlots = getCourtMissingSlots(court);
+    if (missingSlots.length === 0) {
+        alert('此場地已經排滿球員了，若要重排請先清空或移出球員。');
         return;
     }
 
     let availablePool = [...matchState.pool];
-    const needed = court.isSingles ? 2 : 4;
-    if (availablePool.length < needed) {
-        alert('候補區人數不足，無法為此場地安排');
+    if (availablePool.length < missingSlots.length) {
+        alert(`候補區人數不足（此場地還缺 ${missingSlots.length} 人），無法安排。`);
         return;
     }
 
@@ -1999,16 +2308,15 @@ window.autoFillActiveCourt = (courtIndex) => {
     const court = matchState.activeCourts[courtIndex];
     if (!court) return;
 
-    const isEmpty = court.teamA.every(p => p === null) && court.teamB.every(p => p === null);
-    if (!isEmpty) {
-        alert('此場地已經有球員了，請先將他們移至候補區才能重新安排。');
+    const missingSlots = getCourtMissingSlots(court);
+    if (missingSlots.length === 0) {
+        alert('此場地已經排滿球員了，若要重排請先清空或移出球員。');
         return;
     }
 
     let availablePool = [...matchState.pool];
-    const needed = court.isSingles ? 2 : 4;
-    if (availablePool.length < needed) {
-        alert('候補區人數不足，無法為此場地安排');
+    if (availablePool.length < missingSlots.length) {
+        alert(`候補區人數不足（此場地還缺 ${missingSlots.length} 人），無法安排。`);
         return;
     }
 
@@ -2274,7 +2582,11 @@ function swapPlayersInDOM(id1, id2) {
 
 function forceStateSync() {
     matchState = readStateFromDOM();
-    db.collection('badminton').doc('state').set({ matchState }, { merge: true });
+    const groupRef = getCurrentGroupDocRef();
+    if (!groupRef || !hasLoadedCurrentGroup) return;
+    const now = Date.now();
+    recordLocalModification();
+    groupRef.set({ matchState, lastModified: now }, { merge: true });
 }
 
 function updateCourtLevelSums() {
@@ -2564,18 +2876,29 @@ function renderMatchUI(shouldSave = false) {
 // ----------------------------------------------------
 let editingStatusPlayerId = null;
 let editingStatusClearHistory = false;
+let editingStatusManualClear = false;
+let editingStatusClearedByZero = false;
 let editingStatusOrigPrio = 0;
+let editingStatusOrigMatchCount = 0;
+let editingStatusPrioTouched = false;
 
 function closePlayerStatusModal() {
     const modal = document.getElementById('playerStatusModal');
     if (modal) modal.style.display = 'none';
     editingStatusPlayerId = null;
     editingStatusClearHistory = false;
+    editingStatusManualClear = false;
+    editingStatusClearedByZero = false;
+    editingStatusPrioTouched = false;
 }
 
 function renderStatusHistoryBox(p) {
     const box = document.getElementById('statusHistoryInfo');
     if (!box) return;
+    if (editingStatusClearedByZero) {
+        box.innerHTML = `<span style="color: #fbbf24;">場數已設為 0：儲存後將恢復未打過優先值，並一併清除上一場搭檔／同場紀錄。</span>`;
+        return;
+    }
     if (editingStatusClearHistory) {
         box.innerHTML = `<span style="color: #fb923c;">已標記清除避開紀錄（點擊「儲存」後生效）</span>`;
         return;
@@ -2604,7 +2927,11 @@ function openPlayerStatusModal(playerId) {
 
     editingStatusPlayerId = playerId;
     editingStatusClearHistory = false;
+    editingStatusManualClear = false;
+    editingStatusClearedByZero = false;
     editingStatusOrigPrio = getPlayerPriority(p);
+    editingStatusOrigMatchCount = p.matchCount || 0;
+    editingStatusPrioTouched = false;
 
     const titleEl = document.getElementById('statusModalTitle');
     const prioInput = document.getElementById('statusEditPriority');
@@ -2648,37 +2975,78 @@ function openPlayerStatusModal(playerId) {
         if (e.target === modal) closePlayerStatusModal();
     });
 
+    function syncPriorityWhenMatchZero() {
+        if (!matchInput || !prioInput) return;
+        const val = parseInt(matchInput.value, 10);
+        const curPlayer = players.find(x => x.id === editingStatusPlayerId);
+        if (!isNaN(val) && val === 0) {
+            prioInput.value = getUnplayedPriority();
+            editingStatusPrioTouched = false;
+            editingStatusClearHistory = true;
+            editingStatusClearedByZero = true;
+            if (curPlayer) renderStatusHistoryBox(curPlayer);
+        } else if (!isNaN(val) && val > 0 && editingStatusClearedByZero) {
+            editingStatusClearedByZero = false;
+            editingStatusClearHistory = editingStatusManualClear;
+            if (curPlayer) renderStatusHistoryBox(curPlayer);
+        }
+    }
+
+    if (prioInput) {
+        prioInput.addEventListener('input', () => {
+            editingStatusPrioTouched = true;
+        });
+    }
+
     if (btnUnplayed && prioInput) {
-        btnUnplayed.addEventListener('click', () => { prioInput.value = getUnplayedPriority(); });
+        btnUnplayed.addEventListener('click', () => {
+            prioInput.value = getUnplayedPriority();
+            editingStatusPrioTouched = true;
+        });
     }
     if (btnCap && prioInput) {
-        btnCap.addEventListener('click', () => { prioInput.value = getMaxWaitingPriority(); });
+        btnCap.addEventListener('click', () => {
+            prioInput.value = getMaxWaitingPriority();
+            editingStatusPrioTouched = true;
+        });
     }
     if (btnZero && prioInput) {
-        btnZero.addEventListener('click', () => { prioInput.value = 0; });
+        btnZero.addEventListener('click', () => {
+            prioInput.value = 0;
+            editingStatusPrioTouched = true;
+        });
+    }
+
+    if (matchInput) {
+        matchInput.addEventListener('input', syncPriorityWhenMatchZero);
+        matchInput.addEventListener('change', syncPriorityWhenMatchZero);
     }
 
     if (btnMatchMinus && matchInput) {
         btnMatchMinus.addEventListener('click', () => {
             const cur = parseInt(matchInput.value, 10) || 0;
             matchInput.value = Math.max(0, cur - 1);
+            syncPriorityWhenMatchZero();
         });
     }
     if (btnMatchPlus && matchInput) {
         btnMatchPlus.addEventListener('click', () => {
             const cur = parseInt(matchInput.value, 10) || 0;
             matchInput.value = cur + 1;
+            syncPriorityWhenMatchZero();
         });
     }
     if (btnMatchZero && matchInput) {
         btnMatchZero.addEventListener('click', () => {
             matchInput.value = 0;
+            syncPriorityWhenMatchZero();
         });
     }
 
     if (btnClearHistory) {
         btnClearHistory.addEventListener('click', () => {
             editingStatusClearHistory = true;
+            editingStatusManualClear = true;
             const p = players.find(x => x.id === editingStatusPlayerId);
             if (p) renderStatusHistoryBox(p);
         });
@@ -2705,23 +3073,27 @@ function openPlayerStatusModal(playerId) {
             if (!p) return;
 
             const parsedPrio = parseInt(prioInput ? prioInput.value : '0', 10);
-            const newPrio = (!isNaN(parsedPrio) && parsedPrio >= 0) ? parsedPrio : 0;
+            let newPrio = (!isNaN(parsedPrio) && parsedPrio >= 0) ? parsedPrio : 0;
             const parsedMatch = parseInt(matchInput ? matchInput.value : '0', 10);
             const newMatchCount = (!isNaN(parsedMatch) && parsedMatch >= 0) ? parsedMatch : 0;
+
+            const unplayedPrio = getUnplayedPriority();
+            const maxWaitingPrio = getMaxWaitingPriority();
+            if (newMatchCount === 0 && !editingStatusPrioTouched && editingStatusOrigMatchCount > 0) {
+                newPrio = unplayedPrio;
+            }
 
             p.matchCount = newMatchCount;
             p.priority = newPrio;
 
             // 若手動指定的優先值超出/異於預設公式區間，標記 customPriority 以完整保留手動數值
-            const unplayedPrio = getUnplayedPriority();
-            const maxWaitingPrio = getMaxWaitingPriority();
             if (newMatchCount === 0) {
                 p.customPriority = (newPrio !== unplayedPrio);
             } else {
                 p.customPriority = (newPrio > maxWaitingPrio);
             }
 
-            if (editingStatusClearHistory) {
+            if (newMatchCount === 0 || editingStatusClearHistory) {
                 p.lastPartnerId = null;
                 p.lastCourtPlayerIds = null;
             }
@@ -2735,15 +3107,877 @@ function openPlayerStatusModal(playerId) {
     }
 })();
 
-// Initial Boot
+// ----------------------------------------------------
+// MULTI-GROUP MANAGEMENT, CROSS-ACCOUNT SHARING & AUTH
+// ----------------------------------------------------
+let sharingModalGroupId = null;
+
+function renderTopAccountBar() {
+    const selectEl = document.getElementById('activeGroupSelect');
+    const userNameEl = document.getElementById('userAccountName');
+    if (userNameEl && currentUser) {
+        const span = userNameEl.querySelector('span');
+        if (span) span.textContent = getUserDisplayName(currentUser);
+    }
+    if (!selectEl) return;
+
+    selectEl.innerHTML = '';
+    userGroups.forEach(g => {
+        const opt = document.createElement('option');
+        opt.value = g.id;
+        const isOwner = currentUser && g.ownerUid === currentUser.uid;
+        const sharedTag = (g.memberUids && g.memberUids.length > 1) ? ` (${g.memberUids.length}人)` : '';
+        opt.textContent = `${g.name || '未命名群組'}${isOwner ? '' : ' [共享]'}${sharedTag}`;
+        if (g.id === currentGroupId) opt.selected = true;
+        selectEl.appendChild(opt);
+    });
+}
+
+function renderGroupManagerList() {
+    const listEl = document.getElementById('groupManagerList');
+    if (!listEl) return;
+
+    if (!userGroups || userGroups.length === 0) {
+        listEl.innerHTML = `<div style="font-size: 0.85rem; color: var(--text-muted); text-align: center; padding: 1rem;">尚無群組，請在上方建立或輸入共享碼加入。</div>`;
+        return;
+    }
+
+    listEl.innerHTML = '';
+    userGroups.forEach(g => {
+        const isCurrent = g.id === currentGroupId;
+        const isOwner = currentUser && g.ownerUid === currentUser.uid;
+        const memberCount = Array.isArray(g.memberUids) ? g.memberUids.length : 1;
+        const playerCount = Array.isArray(g.players) ? g.players.length : 0;
+
+        const item = document.createElement('div');
+        item.className = 'group-list-item' + (isCurrent ? ' is-current' : '');
+
+        const roleBadge = isOwner
+            ? `<span class="group-role-badge owner">建立者</span>`
+            : `<span class="group-role-badge member">協作成員</span>`;
+        const currentTag = isCurrent ? `<span class="group-role-badge owner">目前使用</span>` : '';
+
+        item.innerHTML = `
+            <div class="group-item-info">
+                <div class="group-item-name">
+                    <span>${g.name || '未命名群組'}</span>
+                    ${roleBadge}
+                    ${currentTag}
+                </div>
+                <div class="group-item-meta">球員 ${playerCount} 人 ・ 成員 ${memberCount} 人${g.shareEnabled && g.shareCode ? ` ・ 共享碼 ${g.shareCode}` : ''}</div>
+            </div>
+            <div class="group-item-actions"></div>
+        `;
+
+        const actionsEl = item.querySelector('.group-item-actions');
+
+        if (!isCurrent) {
+            const btnSwitch = document.createElement('button');
+            btnSwitch.type = 'button';
+            btnSwitch.className = 'status-quick-btn';
+            btnSwitch.style.color = '#34d399';
+            btnSwitch.style.borderColor = 'rgba(16,185,129,0.45)';
+            btnSwitch.textContent = '切換';
+            btnSwitch.addEventListener('click', () => {
+                subscribeToGroupDoc(g.id);
+                closeGroupManagerModal();
+            });
+            actionsEl.appendChild(btnSwitch);
+        }
+
+        const btnNewTab = document.createElement('button');
+        btnNewTab.type = 'button';
+        btnNewTab.className = 'status-quick-btn';
+        btnNewTab.title = '在新分頁多開此群組';
+        btnNewTab.innerHTML = `<i data-lucide="external-link" style="width:13px;height:13px;"></i>`;
+        btnNewTab.addEventListener('click', () => {
+            openGroupInNewTab(g.id);
+        });
+        actionsEl.appendChild(btnNewTab);
+
+        const btnShare = document.createElement('button');
+        btnShare.type = 'button';
+        btnShare.className = 'status-quick-btn';
+        btnShare.style.color = '#38bdf8';
+        btnShare.style.borderColor = 'rgba(56,189,248,0.4)';
+        btnShare.title = '共享設定';
+        btnShare.innerHTML = `<i data-lucide="share-2" style="width:13px;height:13px;"></i>`;
+        btnShare.addEventListener('click', () => {
+            openGroupShareModal(g.id);
+        });
+        actionsEl.appendChild(btnShare);
+
+        if (isOwner) {
+            const btnRename = document.createElement('button');
+            btnRename.type = 'button';
+            btnRename.className = 'status-quick-btn';
+            btnRename.title = '重新命名';
+            btnRename.innerHTML = `<i data-lucide="pencil" style="width:13px;height:13px;"></i>`;
+            btnRename.addEventListener('click', () => renameGroup(g.id));
+            actionsEl.appendChild(btnRename);
+
+            const btnDelete = document.createElement('button');
+            btnDelete.type = 'button';
+            btnDelete.className = 'status-quick-btn';
+            btnDelete.style.color = '#f87171';
+            btnDelete.style.borderColor = 'rgba(248,113,113,0.4)';
+            btnDelete.title = '刪除群組';
+            btnDelete.innerHTML = `<i data-lucide="trash-2" style="width:13px;height:13px;"></i>`;
+            btnDelete.addEventListener('click', () => deleteGroup(g.id));
+            actionsEl.appendChild(btnDelete);
+        } else {
+            const btnLeave = document.createElement('button');
+            btnLeave.type = 'button';
+            btnLeave.className = 'status-quick-btn';
+            btnLeave.style.color = '#fbbf24';
+            btnLeave.style.borderColor = 'rgba(251,191,36,0.4)';
+            btnLeave.textContent = '退出';
+            btnLeave.addEventListener('click', () => leaveGroup(g.id));
+            actionsEl.appendChild(btnLeave);
+        }
+
+        listEl.appendChild(item);
+    });
+
+    lucide.createIcons();
+}
+
+function openGroupInNewTab(groupId) {
+    if (!groupId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('group', groupId);
+    window.open(url.toString(), '_blank');
+}
+
+function openGroupManagerModal() {
+    const modal = document.getElementById('groupManagerModal');
+    if (!modal) return;
+    renderGroupManagerList();
+    modal.style.display = 'flex';
+    lucide.createIcons();
+}
+
+function closeGroupManagerModal() {
+    const modal = document.getElementById('groupManagerModal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function createGroup(name, initialData = null) {
+    if (!currentUser) return null;
+    const trimmedName = (name || '').trim() || '我的羽球群組';
+    const uid = currentUser.uid;
+    const displayName = getUserDisplayName(currentUser);
+    const groupRef = db.collection('groups').doc();
+    const shareCode = generateShareCode();
+    const now = Date.now();
+
+    const groupDocData = {
+        name: trimmedName,
+        ownerUid: uid,
+        ownerName: displayName,
+        memberUids: [uid],
+        memberNames: { [uid]: displayName },
+        shareCode,
+        shareEnabled: false,
+        createdAt: now,
+        lastModified: now,
+        players: (initialData && Array.isArray(initialData.players)) ? initialData.players : [],
+        matchState: (initialData && initialData.matchState) ? initialData.matchState : getDefaultMatchState(),
+        matchConfig: (initialData && initialData.matchConfig) ? initialData.matchConfig : getDefaultMatchConfig()
+    };
+
+    const shareDocData = {
+        groupId: groupRef.id,
+        groupName: trimmedName,
+        ownerUid: uid,
+        enabled: false
+    };
+
+    const batch = db.batch();
+    batch.set(groupRef, groupDocData);
+    batch.set(db.collection('shareCodes').doc(shareCode), shareDocData);
+    await batch.commit();
+
+    subscribeToGroupDoc(groupRef.id);
+    return groupRef.id;
+}
+
+async function renameGroup(groupId) {
+    const g = userGroups.find(x => x.id === groupId);
+    if (!g || !currentUser || g.ownerUid !== currentUser.uid) return;
+
+    const nextName = prompt('請輸入新的群組名稱：', g.name || '');
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    if (!trimmed) {
+        alert('群組名稱不可為空白！');
+        return;
+    }
+
+    const batch = db.batch();
+    batch.update(db.collection('groups').doc(groupId), { name: trimmed });
+    if (g.shareCode) {
+        batch.set(db.collection('shareCodes').doc(g.shareCode), { groupName: trimmed }, { merge: true });
+    }
+    await batch.commit();
+}
+
+async function deleteGroup(groupId) {
+    const g = userGroups.find(x => x.id === groupId);
+    if (!g || !currentUser || g.ownerUid !== currentUser.uid) return;
+
+    if (!confirm(`確定要永久刪除群組「${g.name}」嗎？\n此群組內的球員名單、場地與設定都會一併移除，無法復原。`)) {
+        return;
+    }
+
+    const batch = db.batch();
+    batch.delete(db.collection('groups').doc(groupId));
+    if (g.shareCode) {
+        batch.delete(db.collection('shareCodes').doc(g.shareCode));
+    }
+    await batch.commit();
+}
+
+async function leaveGroup(groupId) {
+    const g = userGroups.find(x => x.id === groupId);
+    if (!g || !currentUser || g.ownerUid === currentUser.uid) return;
+
+    if (!confirm(`確定要退出共享群組「${g.name}」嗎？\n（建立者與其他成員的資料不受影響）`)) {
+        return;
+    }
+
+    const updatePayload = {
+        memberUids: firebase.firestore.FieldValue.arrayRemove(currentUser.uid)
+    };
+    updatePayload[`memberNames.${currentUser.uid}`] = firebase.firestore.FieldValue.delete();
+    await db.collection('groups').doc(groupId).update(updatePayload);
+}
+
+async function joinGroupByShareCode(rawCode) {
+    if (!currentUser) return;
+    const code = (rawCode || '').trim().toUpperCase();
+    if (!code) {
+        alert('請先輸入共享碼！');
+        return;
+    }
+
+    try {
+        const codeDoc = await db.collection('shareCodes').doc(code).get();
+        if (!codeDoc.exists) {
+            alert('找不到此共享碼，請確認輸入是否正確！');
+            return;
+        }
+        const codeData = codeDoc.data();
+        if (!codeData.enabled) {
+            alert('此群組目前已關閉共享功能，請聯繫群組建立者開啟！');
+            return;
+        }
+
+        const targetGroupId = codeData.groupId;
+        const alreadyMember = userGroups.some(g => g.id === targetGroupId);
+        if (alreadyMember) {
+            subscribeToGroupDoc(targetGroupId);
+            closeGroupManagerModal();
+            alert(`您已經在「${codeData.groupName || '該群組'}」中，已為您切換！`);
+            return;
+        }
+
+        const updatePayload = {
+            memberUids: firebase.firestore.FieldValue.arrayUnion(currentUser.uid)
+        };
+        updatePayload[`memberNames.${currentUser.uid}`] = getUserDisplayName(currentUser);
+
+        await db.collection('groups').doc(targetGroupId).update(updatePayload);
+
+        const joinInput = document.getElementById('joinShareCodeInput');
+        if (joinInput) joinInput.value = '';
+
+        subscribeToGroupDoc(targetGroupId);
+        closeGroupManagerModal();
+        alert(`已成功加入共享群組「${codeData.groupName || '羽球群組'}」！`);
+    } catch (err) {
+        console.error('Join group error:', err);
+        alert('加入群組失敗，請確認共享碼或網路連線狀態：' + (err.message || err));
+    }
+}
+
+function renderShareModalContent(groupId) {
+    const g = userGroups.find(x => x.id === groupId) || (currentGroupMeta && currentGroupMeta.id === groupId ? currentGroupMeta : null);
+    if (!g) return;
+
+    const isOwner = Boolean(currentUser && g.ownerUid === currentUser.uid);
+    const titleEl = document.getElementById('shareModalGroupTitle');
+    const btnOn = document.getElementById('btnShareToggleOn');
+    const btnOff = document.getElementById('btnShareToggleOff');
+    const codeEl = document.getElementById('shareCodeDisplay');
+    const btnRegen = document.getElementById('btnRegenerateShareCode');
+    const membersListEl = document.getElementById('shareMembersList');
+
+    if (titleEl) titleEl.textContent = `${g.name || '群組'} — 共享設定`;
+    setToggleState(btnOn, btnOff, Boolean(g.shareEnabled));
+    if (btnOn) btnOn.disabled = !isOwner;
+    if (btnOff) btnOff.disabled = !isOwner;
+    if (btnRegen) btnRegen.style.display = isOwner ? 'inline-flex' : 'none';
+    if (codeEl) codeEl.textContent = g.shareEnabled ? (g.shareCode || '尚未產生') : '（已關閉共享）';
+
+    if (membersListEl) {
+        membersListEl.innerHTML = '';
+        const uids = Array.isArray(g.memberUids) ? g.memberUids : [];
+        const namesMap = g.memberNames || {};
+        uids.forEach(uid => {
+            const isMemberOwner = (uid === g.ownerUid);
+            const isSelf = (currentUser && uid === currentUser.uid);
+            const displayName = namesMap[uid] || (isMemberOwner ? (g.ownerName || '建立者') : '協作成員');
+
+            const row = document.createElement('div');
+            row.className = 'share-member-row';
+            row.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 0.45rem;">
+                    <span>${displayName}${isSelf ? '（我）' : ''}</span>
+                    <span class="group-role-badge ${isMemberOwner ? 'owner' : 'member'}">${isMemberOwner ? '建立者' : '協作者'}</span>
+                </div>
+            `;
+            if (isOwner && !isMemberOwner) {
+                const btnRemove = document.createElement('button');
+                btnRemove.type = 'button';
+                btnRemove.className = 'status-quick-btn';
+                btnRemove.style.color = '#f87171';
+                btnRemove.style.borderColor = 'rgba(248,113,113,0.4)';
+                btnRemove.textContent = '移除';
+                btnRemove.addEventListener('click', async () => {
+                    if (!confirm(`確定要將「${displayName}」移出此群組嗎？`)) return;
+                    const payload = {
+                        memberUids: firebase.firestore.FieldValue.arrayRemove(uid)
+                    };
+                    payload[`memberNames.${uid}`] = firebase.firestore.FieldValue.delete();
+                    await db.collection('groups').doc(g.id).update(payload);
+                });
+                row.appendChild(btnRemove);
+            }
+            membersListEl.appendChild(row);
+        });
+    }
+    lucide.createIcons();
+}
+
+function openGroupShareModal(groupId) {
+    const modal = document.getElementById('groupShareModal');
+    if (!modal || !groupId) return;
+    sharingModalGroupId = groupId;
+    renderShareModalContent(groupId);
+    modal.style.display = 'flex';
+}
+
+function closeGroupShareModal() {
+    const modal = document.getElementById('groupShareModal');
+    if (modal) modal.style.display = 'none';
+    sharingModalGroupId = null;
+}
+
+async function setGroupShareEnabled(groupId, enabled) {
+    const g = userGroups.find(x => x.id === groupId);
+    if (!g || !currentUser || g.ownerUid !== currentUser.uid) return;
+
+    const code = g.shareCode || generateShareCode();
+    const batch = db.batch();
+    batch.update(db.collection('groups').doc(groupId), {
+        shareEnabled: enabled,
+        shareCode: code
+    });
+    batch.set(db.collection('shareCodes').doc(code), {
+        groupId,
+        groupName: g.name || '未命名群組',
+        ownerUid: currentUser.uid,
+        enabled
+    }, { merge: true });
+    await batch.commit();
+}
+
+async function regenerateGroupShareCode(groupId) {
+    const g = userGroups.find(x => x.id === groupId);
+    if (!g || !currentUser || g.ownerUid !== currentUser.uid) return;
+
+    if (!confirm('確定要重設共享代碼嗎？\n重設後舊代碼將立即失效（已加入的成員不受影響）。')) {
+        return;
+    }
+
+    const oldCode = g.shareCode;
+    const newCode = generateShareCode();
+    const batch = db.batch();
+    if (oldCode) {
+        batch.delete(db.collection('shareCodes').doc(oldCode));
+    }
+    batch.update(db.collection('groups').doc(groupId), {
+        shareCode: newCode
+    });
+    batch.set(db.collection('shareCodes').doc(newCode), {
+        groupId,
+        groupName: g.name || '未命名群組',
+        ownerUid: currentUser.uid,
+        enabled: Boolean(g.shareEnabled)
+    });
+    await batch.commit();
+}
+
+async function importLegacyData(mode = 'current') {
+    if (!currentUser) return;
+    try {
+        const legacyDoc = await db.collection('badminton').doc('state').get();
+        if (!legacyDoc.exists) {
+            alert('雲端找不到舊版 (v1.0.0) 資料！');
+            return;
+        }
+        const legacy = legacyDoc.data() || {};
+        const legacyPlayers = Array.isArray(legacy.players) ? legacy.players : [];
+        const legacyMatchState = legacy.matchState || getDefaultMatchState();
+        const legacyMatchConfig = legacy.matchConfig ? Object.assign(getDefaultMatchConfig(), legacy.matchConfig) : getDefaultMatchConfig();
+
+        if (legacyPlayers.length === 0) {
+            alert('舊版 (v1.0.0) 資料中目前沒有任何球員可供匯入。');
+            return;
+        }
+
+        if (mode === 'current') {
+            if (!currentGroupId) {
+                alert('目前沒有選取任何群組，請改用「另建新群組匯入」。');
+                return;
+            }
+            const curName = currentGroupMeta ? currentGroupMeta.name : '目前群組';
+            const existingCount = Array.isArray(players) ? players.length : 0;
+            const overwriteHint = existingCount > 0
+                ? `\n⚠️ 注意：目前群組已有 ${existingCount} 位球員，匯入將會覆蓋目前群組的球員與場地狀態！`
+                : '';
+            if (!confirm(`偵測到舊版資料共有 ${legacyPlayers.length} 位球員。\n\n確定要匯入到目前群組「${curName}」嗎？${overwriteHint}`)) {
+                return;
+            }
+            const now = Date.now();
+            await db.collection('groups').doc(currentGroupId).set({
+                players: legacyPlayers,
+                matchState: legacyMatchState,
+                matchConfig: legacyMatchConfig,
+                lastModified: now
+            }, { merge: true });
+            closeGroupManagerModal();
+            alert(`已成功匯入 ${legacyPlayers.length} 位球員至「${curName}」！（原始舊版資料仍安全保留）`);
+            return;
+        }
+
+        // mode === 'new'
+        if (!confirm(`偵測到舊版資料共有 ${legacyPlayers.length} 位球員。\n\n確定要另建新群組「舊版匯入群組」並完整匯入嗎？（不會影響目前群組，原始舊版資料亦保持不動）`)) {
+            return;
+        }
+
+        await createGroup('舊版匯入群組', {
+            players: legacyPlayers,
+            matchState: legacyMatchState,
+            matchConfig: legacyMatchConfig
+        });
+        closeGroupManagerModal();
+        alert(`已成功建立「舊版匯入群組」並匯入 ${legacyPlayers.length} 位球員！`);
+    } catch (err) {
+        console.error('Import legacy data error:', err);
+        alert('匯入舊版資料失敗：' + (err.message || err));
+    }
+}
+
+function subscribeToUserGroups(user) {
+    if (!user) return;
+    if (unsubscribeGroupsList) {
+        unsubscribeGroupsList();
+        unsubscribeGroupsList = null;
+    }
+
+    let isCreatingDefaultGroup = false;
+
+    unsubscribeGroupsList = db.collection('groups')
+        .where('memberUids', 'array-contains', user.uid)
+        .onSnapshot(snapshot => {
+            const list = [];
+            snapshot.forEach(doc => {
+                list.push(Object.assign({ id: doc.id }, doc.data()));
+            });
+            list.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+            userGroups = list;
+
+            renderTopAccountBar();
+            const mgrModal = document.getElementById('groupManagerModal');
+            if (mgrModal && mgrModal.style.display === 'flex') {
+                renderGroupManagerList();
+            }
+            const shareModal = document.getElementById('groupShareModal');
+            if (shareModal && shareModal.style.display === 'flex' && sharingModalGroupId) {
+                renderShareModalContent(sharingModalGroupId);
+            }
+
+            if (userGroups.length === 0) {
+                if (!isCreatingDefaultGroup) {
+                    isCreatingDefaultGroup = true;
+                    createGroup('我的羽球群組').finally(() => {
+                        isCreatingDefaultGroup = false;
+                    });
+                }
+                return;
+            }
+
+            const currentStillValid = currentGroupId && userGroups.some(g => g.id === currentGroupId);
+            if (!currentStillValid) {
+                let targetId = null;
+                try {
+                    const urlGroup = new URLSearchParams(window.location.search).get('group');
+                    const sessionGroup = sessionStorage.getItem('activeGroupId');
+                    const savedLastGroup = localStorage.getItem('lastGroupId_' + user.uid);
+
+                    if (urlGroup && userGroups.some(g => g.id === urlGroup)) {
+                        targetId = urlGroup;
+                    } else if (sessionGroup && userGroups.some(g => g.id === sessionGroup)) {
+                        targetId = sessionGroup;
+                    } else if (savedLastGroup && userGroups.some(g => g.id === savedLastGroup)) {
+                        targetId = savedLastGroup;
+                    }
+                } catch (e) {}
+
+                if (!targetId) targetId = userGroups[0].id;
+                subscribeToGroupDoc(targetId);
+            }
+        }, err => {
+            console.error('Groups list snapshot error:', err);
+        });
+}
+
+function getFriendlyAuthError(err) {
+    if (!err || !err.code) return '操作失敗，請稍後再試。';
+    switch (err.code) {
+        case 'auth/invalid-email': return '電子信箱格式不正確。';
+        case 'auth/user-disabled': return '此帳號已被停用。';
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential': return '信箱或密碼錯誤，請重新確認。';
+        case 'auth/email-already-in-use': return '此信箱已經註冊過，請直接切換至「登入」。';
+        case 'auth/weak-password': return '密碼強度不足，請至少輸入 6 位字元。';
+        case 'auth/popup-closed-by-user': return '已取消 Google 登入視窗。';
+        case 'auth/network-request-failed': return '網路連線異常，請檢查網路後重試。';
+        case 'auth/too-many-requests': return '嘗試次數過多，請稍候再試。';
+        case 'auth/unauthorized-domain': return '此網域尚未加入 Firebase Authentication 授權清單，請至 Firebase 後台「已授權網域」新增此網址。';
+        default: return err.message || '驗證過程發生錯誤。';
+    }
+}
+
+(function initAuthAndGroupUI() {
+    const authOverlay = document.getElementById('authOverlay');
+    const appContainer = document.getElementById('appContainer');
+    const btnGoogleLogin = document.getElementById('btnGoogleLogin');
+    const tabLogin = document.getElementById('tabAuthLogin');
+    const tabRegister = document.getElementById('tabAuthRegister');
+    const nameGroup = document.getElementById('authNameGroup');
+    const displayNameInput = document.getElementById('authDisplayName');
+    const emailInput = document.getElementById('authEmail');
+    const passwordInput = document.getElementById('authPassword');
+    const emailForm = document.getElementById('emailAuthForm');
+    const submitBtn = document.getElementById('btnEmailAuthSubmit');
+    const forgotBtn = document.getElementById('btnForgotPassword');
+    const errorMsgEl = document.getElementById('authErrorMsg');
+
+    let isRegisterMode = false;
+
+    function showAuthMessage(text, isSuccess = false) {
+        if (!errorMsgEl) return;
+        if (!text) {
+            errorMsgEl.style.display = 'none';
+            errorMsgEl.textContent = '';
+            errorMsgEl.classList.remove('is-success');
+            return;
+        }
+        errorMsgEl.textContent = text;
+        errorMsgEl.classList.toggle('is-success', isSuccess);
+        errorMsgEl.style.display = 'block';
+    }
+
+    function setAuthMode(register) {
+        isRegisterMode = register;
+        showAuthMessage('');
+        if (tabLogin) tabLogin.classList.toggle('active', !register);
+        if (tabRegister) tabRegister.classList.toggle('active', register);
+        if (nameGroup) nameGroup.style.display = register ? 'flex' : 'none';
+        if (forgotBtn) forgotBtn.style.display = register ? 'none' : 'block';
+        if (passwordInput) passwordInput.autocomplete = register ? 'new-password' : 'current-password';
+        if (submitBtn) {
+            const span = submitBtn.querySelector('span');
+            if (span) span.textContent = register ? '註冊並登入' : '登入系統';
+        }
+    }
+
+    if (tabLogin) tabLogin.addEventListener('click', () => setAuthMode(false));
+    if (tabRegister) tabRegister.addEventListener('click', () => setAuthMode(true));
+
+    if (btnGoogleLogin) {
+        btnGoogleLogin.addEventListener('click', async () => {
+            showAuthMessage('');
+            const provider = new firebase.auth.GoogleAuthProvider();
+            provider.setCustomParameters({ prompt: 'select_account' });
+            try {
+                await auth.signInWithPopup(provider);
+            } catch (err) {
+                if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-browser') {
+                    try {
+                        await auth.signInWithRedirect(provider);
+                    } catch (redirectErr) {
+                        showAuthMessage(getFriendlyAuthError(redirectErr));
+                    }
+                } else {
+                    showAuthMessage(getFriendlyAuthError(err));
+                }
+            }
+        });
+    }
+
+    if (emailForm) {
+        emailForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            showAuthMessage('');
+            const email = emailInput ? emailInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
+            const displayName = displayNameInput ? displayNameInput.value.trim() : '';
+
+            if (!email || !password) return;
+
+            try {
+                if (isRegisterMode) {
+                    const cred = await auth.createUserWithEmailAndPassword(email, password);
+                    const finalName = displayName || email.split('@')[0];
+                    if (cred.user) {
+                        await cred.user.updateProfile({ displayName: finalName });
+                    }
+                } else {
+                    await auth.signInWithEmailAndPassword(email, password);
+                }
+            } catch (err) {
+                showAuthMessage(getFriendlyAuthError(err));
+            }
+        });
+    }
+
+    if (forgotBtn) {
+        forgotBtn.addEventListener('click', async () => {
+            const email = emailInput ? emailInput.value.trim() : '';
+            if (!email) {
+                showAuthMessage('請先在上方輸入您的電子信箱，再點擊忘記密碼。');
+                return;
+            }
+            try {
+                await auth.sendPasswordResetEmail(email);
+                showAuthMessage(`已將重設密碼連結寄送至 ${email}，請查收信件！`, true);
+            } catch (err) {
+                showAuthMessage(getFriendlyAuthError(err));
+            }
+        });
+    }
+
+    auth.getRedirectResult().catch(err => {
+        if (err && err.code) showAuthMessage(getFriendlyAuthError(err));
+    });
+
+    // Account Bar & Group Modal listeners
+    const activeGroupSelect = document.getElementById('activeGroupSelect');
+    const btnOpenGroupManager = document.getElementById('btnOpenGroupManager');
+    const btnCloseGroupManager = document.getElementById('btnCloseGroupManager');
+    const groupManagerModal = document.getElementById('groupManagerModal');
+    const btnOpenGroupNewTab = document.getElementById('btnOpenGroupNewTab');
+    const btnQuickShareGroup = document.getElementById('btnQuickShareGroup');
+    const btnLogout = document.getElementById('btnLogout');
+    const newGroupNameInput = document.getElementById('newGroupNameInput');
+    const btnCreateGroup = document.getElementById('btnCreateGroup');
+    const joinShareCodeInput = document.getElementById('joinShareCodeInput');
+    const btnJoinByShareCode = document.getElementById('btnJoinByShareCode');
+    const btnImportLegacyToCurrent = document.getElementById('btnImportLegacyToCurrent');
+    const btnImportLegacyNewGroup = document.getElementById('btnImportLegacyNewGroup');
+
+    const groupShareModal = document.getElementById('groupShareModal');
+    const btnCloseShareModal = document.getElementById('btnCloseShareModal');
+    const btnShareToggleOn = document.getElementById('btnShareToggleOn');
+    const btnShareToggleOff = document.getElementById('btnShareToggleOff');
+    const btnCopyShareCode = document.getElementById('btnCopyShareCode');
+    const btnRegenerateShareCode = document.getElementById('btnRegenerateShareCode');
+
+    if (activeGroupSelect) {
+        activeGroupSelect.addEventListener('change', (e) => {
+            if (e.target.value && e.target.value !== currentGroupId) {
+                subscribeToGroupDoc(e.target.value);
+            }
+        });
+    }
+    if (btnOpenGroupManager) btnOpenGroupManager.addEventListener('click', openGroupManagerModal);
+    if (btnCloseGroupManager) btnCloseGroupManager.addEventListener('click', closeGroupManagerModal);
+    if (groupManagerModal) {
+        groupManagerModal.addEventListener('click', (e) => {
+            if (e.target === groupManagerModal) closeGroupManagerModal();
+        });
+    }
+    if (btnOpenGroupNewTab) {
+        btnOpenGroupNewTab.addEventListener('click', () => {
+            if (currentGroupId) openGroupInNewTab(currentGroupId);
+        });
+    }
+    if (btnQuickShareGroup) {
+        btnQuickShareGroup.addEventListener('click', () => {
+            if (currentGroupId) openGroupShareModal(currentGroupId);
+        });
+    }
+
+    if (btnCreateGroup) {
+        btnCreateGroup.addEventListener('click', async () => {
+            const name = newGroupNameInput ? newGroupNameInput.value.trim() : '';
+            if (!name) {
+                alert('請輸入新群組名稱！');
+                return;
+            }
+            btnCreateGroup.disabled = true;
+            try {
+                await createGroup(name);
+                if (newGroupNameInput) newGroupNameInput.value = '';
+                closeGroupManagerModal();
+            } catch (err) {
+                alert('建立群組失敗：' + (err.message || err));
+            } finally {
+                btnCreateGroup.disabled = false;
+            }
+        });
+    }
+
+    if (btnJoinByShareCode) {
+        btnJoinByShareCode.addEventListener('click', async () => {
+            const code = joinShareCodeInput ? joinShareCodeInput.value : '';
+            btnJoinByShareCode.disabled = true;
+            try {
+                await joinGroupByShareCode(code);
+            } finally {
+                btnJoinByShareCode.disabled = false;
+            }
+        });
+    }
+
+    if (btnImportLegacyToCurrent) {
+        btnImportLegacyToCurrent.addEventListener('click', async () => {
+            btnImportLegacyToCurrent.disabled = true;
+            try {
+                await importLegacyData('current');
+            } finally {
+                btnImportLegacyToCurrent.disabled = false;
+            }
+        });
+    }
+
+    if (btnImportLegacyNewGroup) {
+        btnImportLegacyNewGroup.addEventListener('click', async () => {
+            btnImportLegacyNewGroup.disabled = true;
+            try {
+                await importLegacyData('new');
+            } finally {
+                btnImportLegacyNewGroup.disabled = false;
+            }
+        });
+    }
+
+    if (btnCloseShareModal) btnCloseShareModal.addEventListener('click', closeGroupShareModal);
+    if (groupShareModal) {
+        groupShareModal.addEventListener('click', (e) => {
+            if (e.target === groupShareModal) closeGroupShareModal();
+        });
+    }
+    if (btnShareToggleOn) {
+        btnShareToggleOn.addEventListener('click', () => {
+            if (sharingModalGroupId) setGroupShareEnabled(sharingModalGroupId, true);
+        });
+    }
+    if (btnShareToggleOff) {
+        btnShareToggleOff.addEventListener('click', () => {
+            if (sharingModalGroupId) setGroupShareEnabled(sharingModalGroupId, false);
+        });
+    }
+    if (btnCopyShareCode) {
+        btnCopyShareCode.addEventListener('click', async () => {
+            const g = userGroups.find(x => x.id === sharingModalGroupId);
+            if (!g || !g.shareEnabled || !g.shareCode) {
+                alert('請先開啟共享功能再複製代碼！');
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(g.shareCode);
+                btnCopyShareCode.textContent = '已複製！';
+                setTimeout(() => {
+                    btnCopyShareCode.innerHTML = `<i data-lucide="copy" style="width: 13px; height: 13px;"></i> 複製`;
+                    lucide.createIcons();
+                }, 1200);
+            } catch (e) {
+                prompt('請複製下方共享碼：', g.shareCode);
+            }
+        });
+    }
+    if (btnRegenerateShareCode) {
+        btnRegenerateShareCode.addEventListener('click', () => {
+            if (sharingModalGroupId) regenerateGroupShareCode(sharingModalGroupId);
+        });
+    }
+
+    if (btnLogout) {
+        btnLogout.addEventListener('click', async () => {
+            if (!confirm('確定要登出目前帳號嗎？')) return;
+            if (unsubscribeGroupDoc) { unsubscribeGroupDoc(); unsubscribeGroupDoc = null; }
+            if (unsubscribeGroupsList) { unsubscribeGroupsList(); unsubscribeGroupsList = null; }
+            currentGroupId = null;
+            currentGroupMeta = null;
+            userGroups = [];
+            hasLoadedCurrentGroup = false;
+            players = [];
+            matchState = getDefaultMatchState();
+            matchConfig = getDefaultMatchConfig();
+            try {
+                sessionStorage.removeItem('activeGroupId');
+                const url = new URL(window.location.href);
+                url.searchParams.delete('group');
+                window.history.replaceState({}, '', url.toString());
+            } catch (e) {}
+            closeGroupManagerModal();
+            closeGroupShareModal();
+            closePlayerStatusModal();
+            await auth.signOut();
+        });
+    }
+
+    // Auth State Observer
+    auth.onAuthStateChanged(user => {
+        if (user) {
+            currentUser = user;
+            if (authOverlay) authOverlay.style.display = 'none';
+            if (appContainer) appContainer.style.display = 'block';
+            renderTopAccountBar();
+            const savedActiveView = localStorage.getItem('activeView') || 'viewMatch';
+            switchView(savedActiveView, true);
+            lucide.createIcons();
+            subscribeToUserGroups(user);
+        } else {
+            currentUser = null;
+            if (unsubscribeGroupDoc) { unsubscribeGroupDoc(); unsubscribeGroupDoc = null; }
+            if (unsubscribeGroupsList) { unsubscribeGroupsList(); unsubscribeGroupsList = null; }
+            userGroups = [];
+            currentGroupId = null;
+            currentGroupMeta = null;
+            hasLoadedCurrentGroup = false;
+            players = [];
+            matchState = getDefaultMatchState();
+            matchConfig = getDefaultMatchConfig();
+            closeGroupManagerModal();
+            closeGroupShareModal();
+            closePlayerStatusModal();
+            if (appContainer) appContainer.style.display = 'none';
+            if (authOverlay) authOverlay.style.display = 'flex';
+            lucide.createIcons();
+        }
+    });
+})();
+
+// Initial UI Setup (data loads after auth resolves)
 const savedActiveView = localStorage.getItem('activeView') || 'viewMatch';
 saveCurrentSettingsSnapshot();
 setUIFromConfig(savedSettingsSnapshot);
-renderDatabaseList();
-syncPoolWithPlayers();
-renderMatchUI();
 switchView(savedActiveView, true);
 lucide.createIcons();
-setTimeout(() => {
-    restoreViewScrollPosition(savedActiveView);
-}, 50);

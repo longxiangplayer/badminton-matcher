@@ -1,4 +1,4 @@
-/* Badminton Matcher v1.0.0 */
+/* Badminton Matcher v2.0.0 */
 :root {
     --bg-color: #0f172a;
     --card-bg: rgba(30, 41, 59, 0.7);
@@ -1761,4 +1761,436 @@ select:hover, input[type='checkbox']:hover { cursor: pointer; filter: brightness
 }
 .guide-bullet-list b {
     color: white;
+}
+
+/* ================= AUTHENTICATION & MULTI-GROUP UI (v2.0.0) ================= */
+.auth-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    background:
+        radial-gradient(at 15% 15%, rgba(16, 185, 129, 0.2) 0px, transparent 50%),
+        radial-gradient(at 85% 85%, rgba(139, 92, 246, 0.2) 0px, transparent 50%),
+        #0f172a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    overflow-y: auto;
+}
+.auth-card {
+    width: 100%;
+    max-width: 410px;
+    background: rgba(30, 41, 59, 0.85);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 1.15rem;
+    padding: 1.75rem 1.5rem;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.auth-brand {
+    text-align: center;
+}
+.auth-brand-icon {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 0.65rem;
+    border-radius: 0.9rem;
+    background: rgba(16, 185, 129, 0.16);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.auth-brand-icon i {
+    width: 26px;
+    height: 26px;
+}
+.auth-brand h1 {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.auth-brand p {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-top: 0.3rem;
+}
+.btn-google-login {
+    width: 100%;
+    padding: 0.72rem 1rem;
+    border-radius: 0.65rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 700;
+    font-size: 0.92rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+.btn-google-login:hover {
+    transform: translateY(-1px);
+    filter: brightness(0.96);
+}
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+}
+.auth-divider::before,
+.auth-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.12);
+}
+.auth-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid var(--border);
+    border-radius: 0.6rem;
+    padding: 0.22rem;
+    gap: 0.22rem;
+}
+.auth-tab-btn {
+    padding: 0.45rem;
+    border: none;
+    border-radius: 0.45rem;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.auth-tab-btn.active {
+    background: rgba(16, 185, 129, 0.22);
+    color: #34d399;
+    box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.4);
+}
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.auth-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+.auth-field label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #cbd5e1;
+}
+.auth-input {
+    width: 100%;
+    min-width: 0;
+    padding: 0.58rem 0.75rem;
+    border-radius: 0.55rem;
+    border: 1px solid var(--border);
+    background: rgba(15, 23, 42, 0.8);
+    color: white;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.auth-input:focus {
+    border-color: #38bdf8;
+}
+.auth-error-msg {
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.14);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.7rem;
+}
+.auth-error-msg.is-success {
+    color: #6ee7b7;
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.4);
+}
+.auth-submit-btn {
+    width: 100%;
+    padding: 0.68rem 1rem;
+    justify-content: center;
+}
+.auth-forgot-btn {
+    background: transparent;
+    border: none;
+    color: #38bdf8;
+    font-size: 0.78rem;
+    cursor: pointer;
+    align-self: center;
+    padding: 0.15rem 0.4rem;
+}
+.auth-forgot-btn:hover {
+    text-decoration: underline;
+}
+
+/* Top Account & Group Switcher Bar */
+.top-account-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    background: rgba(30, 41, 59, 0.65);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    padding: 0.45rem 0.7rem;
+    margin-bottom: 0.75rem;
+}
+.account-bar-left,
+.account-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+.group-selector-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 0.5rem;
+    padding: 0.22rem 0.5rem;
+}
+.group-bar-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+.group-select {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 0.84rem;
+    font-weight: 600;
+    max-width: 185px;
+    outline: none;
+    cursor: pointer;
+}
+.group-select option {
+    background: #0f172a;
+    color: white;
+}
+.account-bar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    padding: 0.3rem 0.55rem;
+    border-radius: 0.45rem;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.account-bar-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: white;
+}
+.account-bar-btn i {
+    width: 14px;
+    height: 14px;
+}
+.account-bar-btn.share-accent {
+    color: #38bdf8;
+    border-color: rgba(56, 189, 248, 0.35);
+    background: rgba(56, 189, 248, 0.08);
+}
+.account-bar-btn.logout-accent {
+    color: #fca5a5;
+    border-color: rgba(248, 113, 113, 0.35);
+    background: rgba(248, 113, 113, 0.08);
+}
+.user-account-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #cbd5e1;
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    max-width: 150px;
+}
+.user-account-pill i {
+    width: 13px;
+    height: 13px;
+    color: #34d399;
+    flex-shrink: 0;
+}
+.user-account-pill span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Group Manager & Share Modals */
+.group-section-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.group-section-title {
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.group-section-title i {
+    width: 15px;
+    height: 15px;
+}
+.group-inline-form {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+.group-manager-list,
+.share-members-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+.group-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+    padding: 0.7rem 0.8rem;
+}
+.group-list-item.is-current {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.45);
+}
+.group-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.22rem;
+    min-width: 0;
+}
+.group-item-name {
+    font-weight: 700;
+    font-size: 0.92rem;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+.group-item-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.group-role-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.08rem 0.42rem;
+    border-radius: 999px;
+}
+.group-role-badge.owner {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+.group-role-badge.member {
+    background: rgba(56, 189, 248, 0.2);
+    color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+}
+.group-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+.legacy-import-box {
+    background: rgba(251, 191, 36, 0.06);
+    border: 1px solid rgba(251, 191, 36, 0.28);
+    border-radius: 0.65rem;
+    padding: 0.75rem 0.85rem;
+}
+.share-code-box {
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid var(--border);
+    border-radius: 0.65rem;
+    padding: 0.75rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+.share-code-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.share-code-text {
+    font-size: 1.15rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    padding: 0.25rem 0.65rem;
+    border-radius: 0.45rem;
+    margin-right: auto;
+}
+.share-member-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.84rem;
+    color: white;
+}
+@media (max-width: 640px) {
+    .top-account-bar {
+        padding: 0.4rem 0.5rem;
+    }
+    .group-select {
+        max-width: 135px;
+    }
+    .user-account-pill {
+        max-width: 105px;
+    }
 }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'badminton-matcher-v1.0.0';
+const CACHE_NAME = 'badminton-matcher-v2.0.0';
 const urlsToCache = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const urlsToCache = [
   'https://unpkg.com/lucide@latest',
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
   'https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore-compat.js'
 ];
 
@@ -29,8 +30,16 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // Pass-through for Firebase requests
-  if (event.request.url.includes('firestore.googleapis.com') || event.request.url.includes('googleapis.com')) {
+  // Pass-through for Firebase & Google Auth requests
+  const url = event.request.url;
+  if (
+    url.includes('firestore.googleapis.com') ||
+    url.includes('googleapis.com') ||
+    url.includes('identitytoolkit') ||
+    url.includes('securetoken') ||
+    url.includes('accounts.google.com') ||
+    url.includes('firebaseapp.com')
+  ) {
     return;
   }
 

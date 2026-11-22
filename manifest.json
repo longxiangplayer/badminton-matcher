@@ -2,7 +2,7 @@
   "name": "羽球分隊系統",
   "short_name": "羽球分隊",
   "description": "羽球分隊系統",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0f172a",
